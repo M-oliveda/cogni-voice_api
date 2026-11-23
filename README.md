@@ -122,22 +122,26 @@ python scripts/create_super_admin.py
 | `make format`    | Run Black and isort                                                                                 |
 | `make lint`      | Run flake8, pylint, and Bandit                                                                      |
 | `make typecheck` | Run mypy in strict mode                                                                             |
-| `make test-unit` | Fast unit tests only                                                                                |
+| `make test-unit` | Fast unit tests only, without the coverage gate                                                     |
 | `make test`      | Full suite (unit, integration, RLS, contract, agent, E2E) with the 100% coverage gate; needs Docker |
-| `make cov`       | Generate the combined branch-coverage report                                                        |
+| `make cov`       | Full suite plus the combined branch-coverage report (`htmlcov/`, `coverage.xml`)                    |
 | `make run`       | Run the API locally with reload                                                                     |
 | `make worker`    | Run the local DB-polling worker                                                                     |
 | `make migrate`   | Apply Alembic migrations                                                                            |
 | `make seed`      | Seed the demo tenant                                                                                |
 | `make load-test` | Run the Locust load-test scenarios (on demand)                                                      |
-| `make licenses`  | Check dependency licences against the GPL-2.0-only allowlist                                        |
+| `make licenses`  | Check runtime dependency licences against the GPL-2.0-or-later allowlist                            |
+
+Run `make help` to list the targets available today: `run`, `worker`, `migrate`, `seed`, and `load-test` are added as their roadmap phases land.
 
 ### Dependencies
 
-Edit `requirements.in`, then recompile the pinned files with `pip-compile` and commit them (`requirements-dev.txt` is compiled the same way for development and test tooling):
+Runtime dependencies go in `requirements.in`; development and test tooling goes in `requirements-dev.in` (constrained by `requirements.txt`, so both files resolve to the same versions). Recompile the hash-pinned files, commit them, and re-sync the virtual environment:
 
 ```bash
-pip-compile --generate-hashes requirements.in
+.venv/bin/pip-compile --generate-hashes --strip-extras requirements.in
+.venv/bin/pip-compile --generate-hashes --strip-extras --allow-unsafe requirements-dev.in
+.venv/bin/pip-sync requirements.txt requirements-dev.txt
 ```
 
 ### Other useful commands
