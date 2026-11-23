@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Tool caches and reports
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Secrets and confidential files (also blocked by the pre-commit hook)
+.env
+.env.*
+!.env.example
+design/
+*.pem
+*.key
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
