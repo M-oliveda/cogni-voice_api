@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Direct runtime dependencies with compatible ranges. Recompile the pinned file with:
+#   pip-compile --generate-hashes requirements.in
+pydantic>=2.12,<3
+pydantic-settings>=2.11,<3

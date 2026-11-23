@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Development and test tooling. Recompile the pinned file with:
+#   pip-compile --generate-hashes requirements-dev.in
+-c requirements.txt
+
+# Dependency management and hooks
+pip-tools
+pre-commit
+
+# Formatting, linting, typing, security
+black
+isort
+flake8
+pylint
+mypy
+bandit
+pip-audit
+pip-licenses
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+pytest-mock
+hypothesis

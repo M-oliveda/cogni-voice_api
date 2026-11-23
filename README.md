@@ -1,6 +1,6 @@
 # CogniVoice API
 
-![License: GPL-2.0-only](https://img.shields.io/badge/license-GPL--2.0--only-blue.svg)
+![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-3776AB.svg)
 ![Status: planning](<https://img.shields.io/badge/status-planning%20(phase%200)-lightgrey.svg>)
 
@@ -122,22 +122,26 @@ python scripts/create_super_admin.py
 | `make format`    | Run Black and isort                                                                                 |
 | `make lint`      | Run flake8, pylint, and Bandit                                                                      |
 | `make typecheck` | Run mypy in strict mode                                                                             |
-| `make test-unit` | Fast unit tests only                                                                                |
+| `make test-unit` | Fast unit tests only, without the coverage gate                                                     |
 | `make test`      | Full suite (unit, integration, RLS, contract, agent, E2E) with the 100% coverage gate; needs Docker |
-| `make cov`       | Generate the combined branch-coverage report                                                        |
+| `make cov`       | Full suite plus the combined branch-coverage report (`htmlcov/`, `coverage.xml`)                    |
 | `make run`       | Run the API locally with reload                                                                     |
 | `make worker`    | Run the local DB-polling worker                                                                     |
 | `make migrate`   | Apply Alembic migrations                                                                            |
 | `make seed`      | Seed the demo tenant                                                                                |
 | `make load-test` | Run the Locust load-test scenarios (on demand)                                                      |
-| `make licenses`  | Check dependency licences against the GPL-2.0-only allowlist                                        |
+| `make licenses`  | Check runtime dependency licences against the GPL-2.0-or-later allowlist                            |
+
+Run `make help` to list the targets available today: `run`, `worker`, `migrate`, `seed`, and `load-test` are added as their roadmap phases land.
 
 ### Dependencies
 
-Edit `requirements.in`, then recompile the pinned files with `pip-compile` and commit them (`requirements-dev.txt` is compiled the same way for development and test tooling):
+Runtime dependencies go in `requirements.in`; development and test tooling goes in `requirements-dev.in` (constrained by `requirements.txt`, so both files resolve to the same versions). Recompile the hash-pinned files, commit them, and re-sync the virtual environment:
 
 ```bash
-pip-compile --generate-hashes requirements.in
+.venv/bin/pip-compile --generate-hashes --strip-extras requirements.in
+.venv/bin/pip-compile --generate-hashes --strip-extras --allow-unsafe requirements-dev.in
+.venv/bin/pip-sync requirements.txt requirements-dev.txt
 ```
 
 ### Other useful commands
@@ -283,7 +287,7 @@ The local `pre-commit` framework blocks confidential files and runs fast checks 
 - **Architecture rules:** route → service → repository; tenant scoping plus RLS; never bypass RLS; the tenant is never an LLM tool argument; data sent to the LLM is encoded in TOON (the REST API stays JSON); PII masking is mandatory; never log interaction text, prompts, or secrets; secrets live in GitHub Secrets and the git-ignored `.env`.
 - **Infrastructure:** Terraform is only formatted and validated (`terraform fmt`, `terraform validate`), never applied; cloud environments are set up with the scripts in `infra/scripts/` and the CI/CD pipelines.
 - **Migrations:** applied migrations are never edited; use backward-compatible expand/contract changes.
-- **Licensing:** the project is GPL-2.0-only. New source files carry `SPDX-License-Identifier: GPL-2.0-only`, and new dependencies must be GPLv2-compatible.
+- **Licensing:** the project is GPL-2.0-or-later. New source files carry `SPDX-License-Identifier: GPL-2.0-or-later`, and new runtime dependencies must have licences compatible with it (`make licenses`).
 - **AI assistants:** `AGENTS.md` is the single source of rules; `CLAUDE.md` is a symlink to it.
 
 Every pull request targets `develop` (or `main` for hotfixes) and must pass the full CI gate.
@@ -305,8 +309,8 @@ Every pull request targets `develop` (or `main` for hotfixes) and must pass the 
 
 ## License
 
-This project is licensed under the **GNU General Public License, version 2 only** (`GPL-2.0-only`). See the [`LICENSE`](LICENSE) file for the full text.
+This project is licensed under the **GNU General Public License, version 2 or (at your option) any later version** (`GPL-2.0-or-later`). See the [`LICENSE`](LICENSE) file for the full text.
 
 Copyright (C) the CogniVoice contributors.
 
-This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License version 2 as published by the Free Software Foundation. This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version. This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.

@@ -72,7 +72,7 @@
 | 20  | AI assistant files        | `AGENTS.md` is the single source of rules; `CLAUDE.md` is a symlink to it (§16)                                                                                                                                                                                                                                                                                                                                                                        | One rule set, no duplication                                              |
 | 21  | Typing style              | `Optional[X]` for optional types, as the charter states                                                                                                                                                                                                                                                                                                                                                                                                | Charter convention                                                        |
 | 22  | Demo availability         | Enabled in **every** environment, including production, by default (`DEMO_ENABLED=true`), so external people can test the app. It is read-only and pinned to the demo tenant (§11); it can still be switched off with `DEMO_ENABLED=false`                                                                                                                                                                                                             | Public, safe, read-only demo access; AI cost is bounded by caps (§24.2)   |
-| 23  | Naming and licence        | Repository `cognivoice_api`; product name CogniVoice; **GPL-2.0-only** licence (GNU General Public License v2 only, no "or later" clause; SPDX `GPL-2.0-only`). Dependency licences are checked for GPLv2 compatibility (§26)                                                                                                                                                                                                                          | Project convention; the `LICENSE` file holds the full GPLv2 text          |
+| 23  | Naming and licence        | Repository `cognivoice_api`; product name CogniVoice; **GPL-2.0-or-later** licence (GNU General Public License v2 or any later version; SPDX `GPL-2.0-or-later`), chosen so Apache-2.0 runtime dependencies can be combined under GPLv3 (§26). Runtime dependency licences are checked for compatibility (§26)                                                                                                                                         | Project convention; the `LICENSE` file holds the full GPLv2 text          |
 | 24  | Local Supabase and Ollama | **One single `docker-compose.yaml`** runs the whole local stack: the Supabase services (Postgres + pgvector, Auth, API gateway, Studio), the `api` and the `worker`, so `docker compose up` starts everything together. Ollama runs natively on the Mac host (Metal acceleration) and is reached at `host.docker.internal:11434`                                                                                                                       | One command to start; Docker on Apple Silicon has no GPU access           |
 | 25  | Observability             | Standard Python `logging` with structured JSON on stdout (captured by Cloud Run's built-in log retention) plus the free Cloud Run console metrics; no paid dashboards, alert policies, or log buckets. Optional OpenTelemetry (`TRACING_ENABLED`). Detailed in §19                                                                                                                                                                                     | Low cost for a personal/academic project, still traceable by `request_id` |
 | 26  | Operations and recovery   | Documented performance targets and load testing (§20), backup/PITR with RTO/RPO per environment (§21), runbooks and incident process (§22), retention and erasure (§23)                                                                                                                                                                                                                                                                                | A system is only production-ready if it can be operated and restored      |
@@ -676,14 +676,14 @@ Migrations run as a Cloud Run Job **before** the new revision receives traffic (
 | Major updates (FastAPI, SQLAlchemy, LangGraph, Pydantic) | Evaluated **quarterly**: branch, read the changelog, run the full gate and the agent evaluations, deploy to development first                                 |
 | Pinning                                                  | `requirements.in` has direct dependencies with compatible ranges; `requirements.txt` / `requirements-dev.txt` are fully pinned **with hashes** by `pip-tools` |
 | Exceptions                                               | An unfixable `pip-audit` finding may be ignored only with an ID, justification, owner, and expiry date in the CI configuration                                |
-| Licences                                                 | `pip-licenses` runs in CI against an allowlist reviewed for **GPL-2.0-only compatibility** (§26)                                                              |
+| Licences                                                 | `pip-licenses` runs in CI against an allowlist reviewed for **GPL-2.0-or-later compatibility** (§26)                                                          |
 | Base image                                               | `python:3.14-slim` is pinned by digest and refreshed monthly; the image is scanned in CI                                                                      |
 
 ---
 
 ## 14. Repository, Structure and Workflow
 
-- **Repository:** `cognivoice_api`. Initial `main` contains `README.md`, `LICENSE` (full GPL-2.0-only text), `AGENTS.md`, the `CLAUDE.md` symlink, and starter files.
+- **Repository:** `cognivoice_api`. Initial `main` contains `README.md`, `LICENSE` (full GPLv2 text, applied as GPL-2.0-or-later), `AGENTS.md`, the `CLAUDE.md` symlink, and starter files.
 - **Branching:** GitFlow (`main`, `develop`, `feature/`_, `release/_`, `hotfix/\`\*). Semantic Versioning, first target `0.1.0`, MVP release `1.0.0`.
 - **Required** `README.md` **sections:** introduction, tech stack, CLI/build instructions (including Docker Operations), environment variables.
 
@@ -838,9 +838,12 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
-  # Third-party hooks (pre-commit-hooks, gitleaks, black, isort, flake8,
-  # bandit, terraform fmt, shellcheck) are added with pinned revisions.
+  # Python tools (black, isort, flake8, bandit, mypy, pip-audit) also run as
+  # local hooks from .venv. Non-Python hooks (pre-commit-hooks, gitleaks,
+  # shellcheck, terraform fmt) are added with pinned revisions.
 ```
+
+**Tool versions:** every Python tool runs from `.venv` (`entry: .venv/bin/<tool>`), so hooks, `make lint`, and CI use the single set of hash-pinned versions in `requirements-dev.txt`; CI therefore creates the environment with `make setup`. Only the non-Python hooks carry their own pinned `rev`, refreshed with `pre-commit autoupdate`.
 
 `scripts/hooks/block_confidential.py` (outline):
 
@@ -916,8 +919,9 @@ Both files live at the repository root and are **required** repository files.
 8. Docker and environment rules: single `Dockerfile`, one local-only `docker-compose.yaml` that runs Supabase, the API, and the worker together, variables documented in `.env.example` and README.
 9. Boundaries: do not add out-of-scope features (webhooks, quotas, billing), do not edit applied migrations (add new ones), update docs and ADRs when architecture changes.
 10. Operations rules: never log interaction text, prompts, keys, or tokens; every request and task carries a `request_id`; migrations follow expand/contract (§13.5); breaking API changes need a new major version and the deprecation process (§7.8).
-11. Licence rules: the project is **GPL-2.0-only**; new files carry `SPDX-License-Identifier: GPL-2.0-only`; do not add a dependency without checking its licence is GPLv2-compatible (§26).
+11. Licence rules: the project is **GPL-2.0-or-later**; new files carry `SPDX-License-Identifier: GPL-2.0-or-later`; do not add a runtime dependency without checking its licence is compatible (§26).
 12. Cloud and secrets rules: secrets live in **GitHub Secrets** (never Google Secret Manager) and in the git-ignored `.env` locally; images go to **Docker Hub** (never Artifact Registry); Terraform is only formatted and validated, never applied, and cloud setup uses the `infra/scripts/` scripts; the demo is enabled in every environment by default.
+13. Agent workflow rules: medium or complex changes start with a planning phase and an approved coding plan; agents never commit, push, or open pull requests without the user's explicit authorization.
 
 A **minimal starting version** of `AGENTS.md` is committed with the repository from the first commit and grows with each phase; `CLAUDE.md` is created as a symlink (`ln -s AGENTS.md CLAUDE.md`) in the same commit.
 
@@ -1281,8 +1285,8 @@ Fixed costs to budget separately: the Supabase plan for three projects (producti
 
 ### Phase 0 — Repository, tooling and quality gates
 
-- [ ] Create the GitHub repository `cognivoice_api` with `main` (`README.md`, `LICENSE` GPL-2.0-only) and `develop`; configure branch protection
-- [ ] Licensing: add the GPLv2 `LICENSE` text, `license = "GPL-2.0-only"` in `pyproject.toml`, and `SPDX-License-Identifier: GPL-2.0-only` headers; add a dependency-licence check (`pip-licenses`) to CI with an allowlist reviewed for GPLv2 compatibility
+- [ ] Create the GitHub repository `cognivoice_api` with `main` (`README.md`, `LICENSE` GPL-2.0-or-later) and `develop`; configure branch protection
+- [ ] Licensing: add the GPLv2 `LICENSE` text, `license = "GPL-2.0-or-later"` in `pyproject.toml`, and `SPDX-License-Identifier: GPL-2.0-or-later` headers; add a runtime dependency-licence check (`pip-licenses`) to CI with an allowlist reviewed for GPL-2.0-or-later compatibility
 - [ ] Write the minimal starting `AGENTS.md` (§16) and create the `CLAUDE.md` symlink (`ln -s AGENTS.md CLAUDE.md`); add the CI symlink check
 - [ ] Set up Python 3.14: `.python-version`, `.venv`, `requirements.in`, `pip-tools` compilation
 - [ ] **Python 3.14 compatibility spike:** install the full pinned dependency set and smoke-test FastAPI, SQLAlchemy async with asyncpg, pgvector, LangGraph, `langchain-google-genai`, `langchain-ollama`, DeepEval, Testcontainers, Hypothesis, OpenTelemetry, Locust, `pip-licenses`; record any warning allowlist; resolve blockers by pinning, adapting, or replacing (never by downgrading Python)
@@ -1432,7 +1436,7 @@ Every item is a go-live gate for `v1.0.0`; an unmet item needs a written, dated 
 - [ ] RLS suite green against the staging database as `cognivoice_app`; no tenant table without policies
 - [ ] Secrets rotation procedure written and tried once (database, API HMAC secret, Gemini key)
 - [ ] Production Gemini key is on a **paid** tier; the public demo is read-only, pinned to the synthetic demo tenant, and cost-capped (§24.2), with `DEMO_ENABLED=false` documented as the emergency switch; CORS allowlist verified
-- [ ] Dependency licences reviewed against GPL-2.0-only; `LICENSE` and SPDX headers in place
+- [ ] Runtime dependency licences reviewed against GPL-2.0-or-later; `LICENSE` and SPDX headers in place
 
 #### 25.1 Production Readiness Checklist: Data
 
@@ -1451,7 +1455,7 @@ Every item is a go-live gate for `v1.0.0`; an unmet item needs a written, dated 
 Items referenced elsewhere in this document that are intentionally left to be decided or verified during the phases noted:
 
 - **Notifications and on-call (§19.4):** who is notified of a failed deploy, a failed nightly evaluation, or a production health problem, and how (GitHub failure emails are the default). Decide in Phase 2.
-- **Licence compatibility (§2 decision 23, §13.6):** the allowlist for `pip-licenses` must be reviewed against GPL-2.0-only. Some permissive licences (for example Apache-2.0) are not compatible with GPLv2-only for combined works that are distributed, so the review and its outcome are recorded in an ADR in Phase 0.
+- **Licence compatibility (§2 decision 23, §13.6):** resolved in Phase 0: the project moved from GPL-2.0-only to GPL-2.0-or-later because Apache-2.0 runtime dependencies (for example `asyncpg`, `google-genai`, OpenTelemetry) are incompatible with GPLv2-only. `make licenses` checks the runtime set; development tools are not distributed and are not checked.
 - **Supabase free-tier limits (§24):** confirm the number of projects and the inactivity-pausing rules before creating three environments (Phase 2).
 - **Stuck-row sweeper (§19.3):** automated detection and re-enqueueing through Cloud Scheduler is a post-v1 follow-up.
 - **Docker Hub visibility (§13.2):** confirm that Cloud Run pulls the public image directly (Phase 2).
@@ -1462,7 +1466,7 @@ Items referenced elsewhere in this document that are intentionally left to be de
 ## 27. Documentation Deliverables
 
 - `README.md` (charter structure, local Docker Operations, environment variables table).
-- `LICENSE` (full GPL-2.0-only text).
+- `LICENSE` (full GPLv2 text, applied as GPL-2.0-or-later).
 - `AGENTS.md` (minimal starting point covering commands, architecture rules, standards, and conventions) and the `CLAUDE.md` symlink to it (§16).
 - `docs/architecture.md` (diagrams from §4 and §8).
 - `docs/cloud-tasks.md` (the explanation in §8.1 plus operational notes: queue settings, retries, debugging failed tasks, local worker parity).
@@ -1471,5 +1475,5 @@ Items referenced elsewhere in this document that are intentionally left to be de
 - `docs/runbooks/` (one file per scenario in §22.1, `disaster-recovery.md`, `incident-response.md`, `sql-diagnostics.md`, post-incident review template).
 - `docs/performance.md` (targets, load-test scenarios, baseline results; §20).
 - `docs/privacy.md` (retention, erasure, processor role, sub-processors; §23).
-- `docs/adr/` Architecture Decision Records: RLS strategy, queue choice, provider abstraction and embedding compatibility, agent framework, secrets in GitHub Secrets and WIF, Docker Hub instead of Artifact Registry, Terraform as validate-only showcase, TOON for LLM input, migration strategy, Python 3.14 dependency policy, testing and coverage policy, low-cost observability and SLOs, backup and recovery targets, GPL-2.0-only licence compatibility.
+- `docs/adr/` Architecture Decision Records: RLS strategy, queue choice, provider abstraction and embedding compatibility, agent framework, secrets in GitHub Secrets and WIF, Docker Hub instead of Artifact Registry, Terraform as validate-only showcase, TOON for LLM input, migration strategy, Python 3.14 dependency policy, testing and coverage policy, low-cost observability and SLOs, backup and recovery targets, GPL-2.0-or-later licence compatibility.
 - Live API documentation: Swagger UI, ReDoc, and `/demo`.
