@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Git hooks (MASTERPLAN.md §15). Installed by `make setup`. Python tools run from
+# .venv so hooks, `make lint` and CI share the hash-pinned versions in
+# requirements-dev.txt; non-Python tools are pinned below. CI re-runs every check.
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      # --- pre-commit ---------------------------------------------------------
+      - id: block-confidential-files
+        name: Block confidential files
+        entry: .venv/bin/python scripts/hooks/block_confidential.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: black
+        name: black
+        entry: .venv/bin/black
+        language: system
+        types: [python]
+      - id: isort
+        name: isort
+        entry: .venv/bin/isort
+        language: system
+        types: [python]
+      - id: flake8
+        name: flake8
+        entry: .venv/bin/flake8
+        language: system
+        types: [python]
+      - id: bandit
+        name: bandit
+        entry: .venv/bin/bandit -q -c pyproject.toml
+        language: system
+        types: [python]
+        exclude: ^tests/
+      - id: mypy
+        name: mypy (strict, whole project)
+        entry: .venv/bin/mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+      # --- commit-msg ---------------------------------------------------------
+      - id: commit-message
+        name: Validate Gitmoji commit message
+        entry: .venv/bin/python scripts/hooks/validate_commit_msg.py
+        language: system
+        stages: [commit-msg]
+      # --- pre-push -----------------------------------------------------------
+      - id: related-tests
+        name: Tests related to unpushed commits
+        entry: .venv/bin/python scripts/hooks/run_related_tests.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: pip-audit
+        name: pip-audit (requirements changed)
+        entry: .venv/bin/pip-audit --disable-pip -r requirements.txt -r requirements-dev.txt
+        language: system
+        files: ^requirements.*\.txt$
+        pass_filenames: false
+        stages: [pre-push]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: destroyed-symlinks
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1-1
+    hooks:
+      - id: shellcheck
+        files: ^infra/scripts/
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.109.5
+    hooks:
+      - id: terraform_fmt
+        files: ^infra/
