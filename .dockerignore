@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Keep the build context small and free of secrets. The Dockerfile copies only
+# what each stage needs; everything else stays out of the context.
+
+# Version control and CI
+.git/
+.github/
+
+# Secrets and confidential files (never in an image)
+.env
+.env.*
+!.env.example
+design/
+*.pem
+*.key
+
+# Python environments, caches, and reports
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local tooling and infrastructure state
+.terraform/
+*.tfstate
+*.tfstate.*
+.idea/
+.vscode/
+.DS_Store

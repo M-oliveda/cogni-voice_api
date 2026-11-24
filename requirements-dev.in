@@ -24,3 +24,12 @@ pytest-asyncio
 pytest-cov
 pytest-mock
 hypothesis
+respx
+testcontainers[postgres]
+# Reads docker-compose.yaml in the configuration consistency tests
+pyyaml
+types-pyyaml
+
+# Agent evaluations and load tests
+deepeval>=4.3
+locust>=2.47

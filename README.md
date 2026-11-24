@@ -2,7 +2,7 @@
 
 ![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-3776AB.svg)
-![Status: planning](<https://img.shields.io/badge/status-planning%20(phase%200)-lightgrey.svg>)
+![Status: in development](<https://img.shields.io/badge/status-in%20development%20(phase%201)-lightgrey.svg>)
 
 **CogniVoice** (Cognitive Voice of the Customer) is a B2B, API-first platform for customer-feedback intelligence. Companies push raw customer text (emails, chat transcripts, app reviews, support tickets, social comments) to a multi-tenant REST API. CogniVoice masks personal data, analyzes each item with an LLM (sentiment, emotion, topics, summary), stores a semantic embedding, and exposes the results through analytics endpoints, semantic search, and an **AI agent** that answers natural-language questions about a tenant's feedback by calling those capabilities as tools.
 
@@ -84,11 +84,11 @@ See [`MASTERPLAN.md`](MASTERPLAN.md) §4 to §10 for the full design.
 ### First-time setup
 
 ```bash
-git clone <repository-url> cognivoice_api
-cd cognivoice_api
+git clone https://github.com/M-oliveda/cogni-voice_api.git
+cd cogni-voice_api
 
-cp .env.example .env          # then edit the values (see "Environment Variables")
 make setup                    # creates .venv, installs pinned dependencies, installs git hooks
+make env                      # creates .env with newly generated local secrets and Supabase keys
 ```
 
 Pull the local models once (Ollama runs on the host, not in Docker):
@@ -101,12 +101,12 @@ ollama pull nomic-embed-text
 ### Daily development workflow
 
 ```bash
-docker compose up --build     # Supabase (Postgres + pgvector + Auth), API, and worker together
+docker compose up --build     # Supabase (Postgres + pgvector + Auth + Kong), API, and worker together
 make migrate                  # apply Alembic migrations
 make seed                     # optional: synthetic demo tenant (~150-200 interactions)
 ```
 
-The API runs with hot reload at <http://localhost:8000>. To run the API or the worker outside Docker instead (for example under a debugger), start only the Supabase services with `docker compose up -d --scale api=0 --scale worker=0` and then run `make run` and, in a second terminal, `make worker`.
+The API runs with hot reload at <http://localhost:8000>. To run the API or the worker outside Docker instead (for example under a debugger), start only the Supabase services with `docker compose up -d db auth kong` and then run `make run` and, in a second terminal, `make worker`.
 
 Create the first Super Admin for the environment:
 
@@ -119,6 +119,7 @@ python scripts/create_super_admin.py
 | Target           | Description                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------- |
 | `make setup`     | Create `.venv`, install dependencies, install pre-commit/commit-msg/pre-push hooks                  |
+| `make env`       | Create `.env` from `.env.example` with new local secrets (`--force` via the script to replace it)   |
 | `make format`    | Run Black and isort                                                                                 |
 | `make lint`      | Run flake8, pylint, and Bandit                                                                      |
 | `make typecheck` | Run mypy in strict mode                                                                             |
@@ -154,13 +155,26 @@ pre-commit run --all-files        # run every hook locally, as CI does
 
 ## Docker Operations
 
-Docker Compose is used for **local development only**. The single `docker-compose.yaml` runs **all** local services: the Supabase services (Postgres with pgvector, Auth, API gateway), the `api`, and the `worker` (Dockerfile target `dev`, bind mounts, hot reload), so the app and Supabase start and run together. Ollama runs natively on the host; containers reach it at `host.docker.internal:11434`. Deployed environments run on Cloud Run from the `prod` image target, published to Docker Hub.
+Docker Compose is used for **local development only**. The single `docker-compose.yaml` runs **all** local services: a trimmed set of Supabase services based on Supabase's self-hosting setup (Postgres with pgvector, Auth, and the Kong gateway; config under `supabase/`), the `api`, and the `worker` (Dockerfile target `dev`, bind mounts, hot reload), so the app and Supabase start and run together. Ollama runs natively on the host; containers reach it at `host.docker.internal:11434`. Deployed environments run on Cloud Run from the `prod` image target, published to Docker Hub. Run `make env` once first: Compose reads its secrets from `.env`.
+
+| Service | Host address             | Purpose                                                  |
+| ------- | ------------------------ | -------------------------------------------------------- |
+| `api`   | `http://localhost:8000`  | FastAPI with hot reload                                  |
+| `kong`  | `http://localhost:54321` | Supabase gateway (`SUPABASE_URL`): Auth under `/auth/v1` |
+| `db`    | `127.0.0.1:54322`        | Postgres (`DATABASE_URL` connects as `cognivoice_app`)   |
+| `auth`  | _(internal only)_        | Supabase Auth (GoTrue), reached through `kong`           |
+
+Every port binds to `127.0.0.1` only. The application entrypoints arrive with the roadmap (`api` in Phase 1, `worker` in Phase 4); until then, start only the Supabase services.
 
 ```bash
+docker compose up -d --wait db auth kong  # only the Supabase services
+docker compose --profile studio up -d     # also Supabase Studio at http://localhost:54321 (DASHBOARD_* in .env)
+docker compose --profile ollama up -d     # Ollama in Docker (Linux); set COMPOSE_OLLAMA_URL=http://ollama:11434
 docker compose up --build                 # build images and start all services
 docker compose up -d                      # start in the background
 docker compose restart <service>          # restart one service, e.g. api or worker
 docker compose down                       # stop and remove the containers
+docker compose down -v                    # also delete the database volume (fresh init on next start)
 docker compose exec <service> <command>   # run a command inside a service
 ```
 
@@ -222,6 +236,20 @@ Local values live in `.env` (git-ignored); `.env.example` is committed with plac
 | `TRACING_ENABLED`           |   no   | Export OpenTelemetry traces (optional)                                        | `false`                     |
 | `DEMO_ENABLED`              |   no   | Serve `/demo` (enabled by default in every environment, including production) | `true`                      |
 | `DEMO_TENANT_ID`            |   no   | Tenant used (read-only) by the demo page                                      | _(UUID of the demo tenant)_ |
+
+The local Supabase services read these extra variables, which `make env` fills in. They are **local only** and never set in the cloud:
+
+| Variable                     | Secret | Description                                                       | Example / default                   |
+| ---------------------------- | :----: | ----------------------------------------------------------------- | ----------------------------------- |
+| `POSTGRES_PASSWORD`          |  yes   | Password of the Compose Postgres admin and Supabase service roles | _(generated)_                       |
+| `COGNIVOICE_APP_DB_PASSWORD` |  yes   | Password of the `cognivoice_app` login role                       | _(generated)_                       |
+| `SUPABASE_ANON_KEY`          |  yes   | `anon` API key accepted by the Kong gateway                       | _(generated, signed JWT)_           |
+| `DASHBOARD_USERNAME`         |   no   | Studio basic-auth user (`studio` profile)                         | `supabase`                          |
+| `DASHBOARD_PASSWORD`         |  yes   | Studio basic-auth password (`studio` profile)                     | _(generated)_                       |
+| `PG_META_CRYPTO_KEY`         |  yes   | pg-meta encryption key (`studio` profile)                         | _(generated)_                       |
+| `COMPOSE_OLLAMA_URL`         |   no   | Ollama URL seen from the containers                               | `http://host.docker.internal:11434` |
+
+Locally, `make env` also generates `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `API_KEY_HMAC_SECRET`, `DATABASE_URL`, and `DATABASE_MIGRATION_URL`; Auth and Kong use the same JWT secret and service-role key as the API.
 
 GitHub Environments (`development`, `staging`, `production`) store non-secret configuration as variables (`GCP_PROJECT_ID`, `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SERVICE_ACCOUNT`) and the runtime secrets as GitHub Secrets (`DATABASE_URL`, `GEMINI_API_KEY`, and the other secret variables above). The Docker Hub credentials (`DOCKERHUB_USERNAME` variable and `DOCKERHUB_TOKEN` secret) are repository-level GitHub values and are not application settings. There are no long-lived GCP keys: GitHub authenticates through Workload Identity Federation.
 
@@ -298,14 +326,9 @@ Every pull request targets `develop` (or `main` for hotfixes) and must pass the 
 | -------------------------------- | ---------------------------------------------------------------------- |
 | [`MASTERPLAN.md`](MASTERPLAN.md) | Architecture, data model, API, pipeline, security, operations, roadmap |
 | `AGENTS.md` / `CLAUDE.md`        | Rules for AI coding assistants                                         |
-| `docs/architecture.md`           | Architecture diagrams                                                  |
-| `docs/cloud-tasks.md`            | Queue behaviour, retries, local worker parity                          |
-| `docs/agent.md`                  | Agent graph, tools, guardrails                                         |
-| `docs/testing.md`                | Test layers, coverage policy, evaluations                              |
-| `docs/performance.md`            | Performance targets and load-test results                              |
-| `docs/privacy.md`                | Data retention, erasure, sub-processors                                |
-| `docs/runbooks/`                 | Operational runbooks, incident response, disaster recovery             |
-| `docs/adr/`                      | Architecture Decision Records                                          |
+| [`.env.example`](.env.example)   | Every environment variable, with placeholders                          |
+
+Further documents (`docs/` guides, runbooks, ADRs) are written only on request; decisions are recorded in `MASTERPLAN.md` §2 (decision 30).
 
 ## License
 

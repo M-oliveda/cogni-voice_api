@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Automated dependency updates (MASTERPLAN.md §13.6): minor and patch updates
+# are reviewed in a monthly batch; security updates open immediately. The
+# Terraform ecosystem is added with infra/ in Phase 2.
+version: 2
+updates:
+  # requirements*.in compiled by pip-compile into hash-pinned requirements*.txt
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    target-branch: develop
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: ":arrow_up:"
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    target-branch: develop
+    commit-message:
+      prefix: ":arrow_up:"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Base image pinned by digest in the Dockerfile
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    target-branch: develop
+    commit-message:
+      prefix: ":arrow_up:"
+
+  # Supabase, Kong, and Ollama images in the local docker-compose.yaml
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: monthly
+    target-branch: develop
+    commit-message:
+      prefix: ":arrow_up:"
