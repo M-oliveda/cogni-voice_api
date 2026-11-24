@@ -98,7 +98,6 @@ disable = [
     "C0116",  # missing-function-docstring
     "R0903",  # too-few-public-methods (Pydantic models)
     "R0913",  # too-many-arguments (FastAPI endpoints)
-    "R6003",  # consider-alternative-union-syntax (the standard is Optional[X])
     "R6103",  # consider-using-assignment-expr (walrus only where it reads better)
 ]
 
