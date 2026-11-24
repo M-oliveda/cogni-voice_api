@@ -13,7 +13,7 @@ SRC := app scripts tests
 LICENSE_ALLOWLIST := MIT;BSD;ISC;Apache;PSF;Python Software Foundation;MPL-2.0;Mozilla Public License 2.0;LGPL;GNU Lesser General Public License;GPL-2.0-or-later;GPLv2+;GPL-3.0;GPLv3;Unlicense;CC0
 
 .DEFAULT_GOAL := help
-.PHONY: help setup format lint typecheck test-unit test cov licenses
+.PHONY: help setup env format lint typecheck test-unit test cov licenses
 
 help: ## Show the available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -23,6 +23,9 @@ setup: ## Create .venv, install pinned dependencies, install git hooks
 	$(BIN)/python -m pip install --quiet --upgrade pip pip-tools
 	$(BIN)/pip-sync requirements.txt requirements-dev.txt
 	$(BIN)/pre-commit install
+
+env: ## Create .env from .env.example with new local secrets
+	$(BIN)/python scripts/generate_local_env.py
 
 format: ## Run Black and isort
 	$(BIN)/black $(SRC)
