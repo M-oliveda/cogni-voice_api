@@ -4,7 +4,7 @@ Rules for AI coding assistants working on **CogniVoice API**. This file is the s
 
 ## 1. Project summary
 
-CogniVoice is a B2B, API-first, multi-tenant platform for customer-feedback intelligence: it ingests raw text, masks PII, analyzes it with an LLM, stores embeddings, and exposes analytics, semantic search, and a LangGraph agent. Stack: Python 3.14, FastAPI, SQLAlchemy 2.x async, Alembic, Supabase (Postgres, pgvector, Auth), Gemini (cloud) and Ollama (local). Status: Phases 0 (tooling, quality gates, local stack) and 1 (application skeleton) are complete; `worker` and `seed` become available as their roadmap phases land (`MASTERPLAN.md` §25).
+CogniVoice is a B2B, API-first, multi-tenant platform for customer-feedback intelligence: it ingests raw text, masks PII, analyzes it with an LLM, stores embeddings, and exposes analytics, semantic search, and a LangGraph agent. Stack: Python 3.14, FastAPI, SQLAlchemy 2.x async, Alembic, Supabase (Postgres, pgvector, Auth), Gemini (cloud) and Ollama (local). Status: Phases 0 (tooling, quality gates, local stack) and 1 (application skeleton) are complete and Phase 2 (infrastructure, CI/CD) is in progress; `worker` and `seed` become available as their roadmap phases land (`MASTERPLAN.md` §25).
 
 ## 2. Setup and daily commands
 
@@ -18,6 +18,8 @@ make test-unit  # fast unit tests
 make test       # full suite with the 100% coverage gate (needs Docker)
 make cov        # full suite plus htmlcov/ and coverage.xml
 make licenses   # runtime dependency licences against the allowlist
+make infra-check  # shellcheck infra/scripts, terraform fmt -check and validate
+make smoke URL=https://...  # smoke test a deployed revision
 make run        # API with hot reload
 make worker     # local queue worker
 make migrate    # apply Alembic migrations
@@ -74,6 +76,8 @@ docker compose up -d --wait db auth kong   # only the local Supabase services
 - Cloud Run runs the `prod` image, published to **Docker Hub** (not Artifact Registry). Authentication to GCP uses Workload Identity Federation; no service-account keys.
 - The three GCP projects already contain other resources and the service accounts (`cicd-deployer-*`) and WIF pool (`github-pool`) already exist. Check them with `gcloud`; do not recreate them.
 - **Terraform is only formatted and validated** (`terraform fmt`, `terraform validate`). Never run `terraform apply`. Cloud setup is done with the scripts in `infra/scripts/` and the CI/CD pipelines.
+- Everything stays on **free tiers**. One free Supabase database is shared by development, staging, and production (decision 31): only the development deploy migrates it, shared secrets are repository-level GitHub Secrets, and migrations must stay expand/contract so older staging and production code keeps working.
+- Every deploy workflow runs the full test gate first (`tests/unit/test_workflows.py` guards this). Setup scripts in `infra/scripts/` must be idempotent and pass `shellcheck`.
 - The demo (`/demo`) is enabled in every environment by default (`DEMO_ENABLED=true`); it is read-only and pinned to the demo tenant.
 
 ## 9. Boundaries
