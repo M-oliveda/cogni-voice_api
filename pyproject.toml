@@ -63,6 +63,11 @@ strict_equality = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
+# Third-party packages without type information (no py.typed marker).
+module = ["asyncpg"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
 
@@ -126,9 +131,23 @@ markers = [
     "evals: LLM-evaluated agent quality, never in the coverage gate (tests/evals)",
     "load: Locust load-test scenarios (tests/load)",
 ]
-filterwarnings = ["error"]
+# Warnings are errors. Allowlist of third-party warnings on Python 3.14
+# (MASTERPLAN.md §17.3): each entry names the emitting module and its reason.
+filterwarnings = [
+    "error",
+    # langsmith (via langchain-core) and deepeval still call the deprecated
+    # asyncio.iscoroutinefunction (removed in Python 3.16).
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:langsmith\\..*",
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:deepeval\\..*",
+]
 addopts = [
     "--import-mode=importlib",
+    # Plugins auto-registered by eval/load tools: Locust gevent-patches the
+    # process and DeepEval fails on Python 3.14 deprecations. tests/evals and
+    # tests/load enable them explicitly with -p when they run.
+    "-p", "no:deepeval",
+    "-p", "no:locust",
+    "-p", "no:langsmith_plugin",
     "--strict-markers",
     "--strict-config",
     "--cov",
