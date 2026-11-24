@@ -1,0 +1,195 @@
+{
+  "components": {
+    "schemas": {
+      "ErrorBody": {
+        "description": "The body of the error envelope.",
+        "properties": {
+          "code": {
+            "examples": [
+              "not_found"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "message": {
+            "examples": [
+              "The requested resource was not found."
+            ],
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "5f0c2d7e-2c1b-4f6e-9a39-1d2b8a6c4e10"
+            ],
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "The error envelope returned by every failing request.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "The process is running.",
+        "properties": {
+          "status": {
+            "const": "ok",
+            "examples": [
+              "ok"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "description": "The process can serve traffic: its dependencies are reachable.",
+        "properties": {
+          "checks": {
+            "additionalProperties": {
+              "const": "ok",
+              "type": "string"
+            },
+            "examples": [
+              {
+                "database": "ok"
+              }
+            ],
+            "title": "Checks",
+            "type": "object"
+          },
+          "status": {
+            "const": "ok",
+            "examples": [
+              "ok"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "CogniVoice",
+      "url": "https://github.com/M-oliveda/cogni-voice_api"
+    },
+    "description": "\nMulti-tenant, API-first customer-feedback intelligence.\n\nPush raw customer text; CogniVoice masks personal data, analyses it with an\nLLM, stores a semantic embedding, and exposes analytics, semantic search, and\nan AI agent over the results.\n\n* **Errors** always use the envelope\n  `{\"error\": {\"code\", \"message\", \"details\", \"request_id\"}}`; `code` is stable.\n* **Correlation:** send `X-Request-ID` or read the generated one from every\n  response.\n* **Compatibility:** responses may gain fields within a major version.\n",
+    "license": {
+      "identifier": "GPL-2.0-or-later",
+      "name": "GPL-2.0-or-later"
+    },
+    "title": "CogniVoice API v1",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "description": "Returns 200 while the process is running. Checks nothing else.",
+        "operationId": "getLiveness",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Returns 200 when the database answers within 2 seconds, otherwise 503 with the error envelope (`database_unavailable`).",
+        "operationId": "getReadiness",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database is unreachable"
+          }
+        },
+        "summary": "Readiness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "local",
+      "url": "http://localhost:8000"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Liveness and readiness probes.",
+      "name": "health"
+    }
+  ]
+}
