@@ -98,3 +98,8 @@ repos:
     hooks:
       - id: terraform_fmt
         files: ^infra/
+      # init -backend=false only: the showcase is never planned or applied.
+      - id: terraform_validate
+        files: ^infra/terraform/
+        args:
+          - --tf-init-args=-backend=false
