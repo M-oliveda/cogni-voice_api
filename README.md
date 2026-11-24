@@ -2,7 +2,7 @@
 
 ![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-3776AB.svg)
-![Status: in development](<https://img.shields.io/badge/status-in%20development%20(phase%201)-lightgrey.svg>)
+![Status: in development](<https://img.shields.io/badge/status-in%20development%20(phase%202)-lightgrey.svg>)
 
 **CogniVoice** (Cognitive Voice of the Customer) is a B2B, API-first platform for customer-feedback intelligence. Companies push raw customer text (emails, chat transcripts, app reviews, support tickets, social comments) to a multi-tenant REST API. CogniVoice masks personal data, analyzes each item with an LLM (sentiment, emotion, topics, summary), stores a semantic embedding, and exposes the results through analytics endpoints, semantic search, and an **AI agent** that answers natural-language questions about a tenant's feedback by calling those capabilities as tools.
 
@@ -25,6 +25,7 @@ The service follows a **"payloads, not files"** philosophy: it only handles UTF-
     - [Other useful commands](#other-useful-commands)
   - [Docker Operations](#docker-operations)
   - [Environment Variables](#environment-variables)
+  - [Cloud Environments and Deployment](#cloud-environments-and-deployment)
   - [API Documentation](#api-documentation)
   - [Testing and Quality Gates](#testing-and-quality-gates)
   - [Contributing](#contributing)
@@ -116,22 +117,24 @@ python scripts/create_super_admin.py
 
 ### Make targets
 
-| Target           | Description                                                                                         |
-| ---------------- | --------------------------------------------------------------------------------------------------- |
-| `make setup`     | Create `.venv`, install dependencies, install pre-commit/commit-msg/pre-push hooks                  |
-| `make env`       | Create `.env` from `.env.example` with new local secrets (`--force` via the script to replace it)   |
-| `make format`    | Run Black and isort                                                                                 |
-| `make lint`      | Run flake8, pylint, and Bandit                                                                      |
-| `make typecheck` | Run mypy in strict mode                                                                             |
-| `make test-unit` | Fast unit tests only, without the coverage gate                                                     |
-| `make test`      | Full suite (unit, integration, RLS, contract, agent, E2E) with the 100% coverage gate; needs Docker |
-| `make cov`       | Full suite plus the combined branch-coverage report (`htmlcov/`, `coverage.xml`)                    |
-| `make run`       | Run the API locally with reload                                                                     |
-| `make worker`    | Run the local DB-polling worker                                                                     |
-| `make migrate`   | Apply Alembic migrations                                                                            |
-| `make seed`      | Seed the demo tenant                                                                                |
-| `make load-test` | Run the Locust load-test scenarios (on demand)                                                      |
-| `make licenses`  | Check runtime dependency licences against the GPL-2.0-or-later allowlist                            |
+| Target             | Description                                                                                                |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `make setup`       | Create `.venv`, install dependencies, install pre-commit/commit-msg/pre-push hooks                         |
+| `make env`         | Create `.env` from `.env.example` with new local secrets (`--force` via the script to replace it)          |
+| `make format`      | Run Black and isort                                                                                        |
+| `make lint`        | Run flake8, pylint, and Bandit                                                                             |
+| `make typecheck`   | Run mypy in strict mode                                                                                    |
+| `make test-unit`   | Fast unit tests only, without the coverage gate                                                            |
+| `make test`        | Full suite (unit, integration, RLS, contract, agent, E2E) with the 100% coverage gate; needs Docker        |
+| `make cov`         | Full suite plus the combined branch-coverage report (`htmlcov/`, `coverage.xml`)                           |
+| `make run`         | Run the API locally with reload                                                                            |
+| `make worker`      | Run the local DB-polling worker                                                                            |
+| `make migrate`     | Apply Alembic migrations                                                                                   |
+| `make seed`        | Seed the demo tenant                                                                                       |
+| `make load-test`   | Run the Locust load-test scenarios (on demand)                                                             |
+| `make licenses`    | Check runtime dependency licences against the GPL-2.0-or-later allowlist                                   |
+| `make infra-check` | Run shellcheck on `infra/scripts/`, `terraform fmt -check`, and `terraform validate` (never plan or apply) |
+| `make smoke URL=…` | Smoke test a deployed revision (`/healthz`, `/readyz`, `/api/v1/docs`)                                     |
 
 Run `make help` to list the targets available today: `worker`, `seed`, and `load-test` are added as their roadmap phases land.
 
@@ -252,7 +255,51 @@ The local Supabase services read these extra variables, which `make env` fills i
 
 Locally, `make env` also generates `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `API_KEY_HMAC_SECRET`, `DATABASE_URL`, and `DATABASE_MIGRATION_URL`; Auth and Kong use the same JWT secret and service-role key as the API.
 
-GitHub Environments (`development`, `staging`, `production`) store non-secret configuration as variables (`GCP_PROJECT_ID`, `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SERVICE_ACCOUNT`) and the runtime secrets as GitHub Secrets (`DATABASE_URL`, `GEMINI_API_KEY`, and the other secret variables above). The Docker Hub credentials (`DOCKERHUB_USERNAME` variable and `DOCKERHUB_TOKEN` secret) are repository-level GitHub values and are not application settings. There are no long-lived GCP keys: GitHub authenticates through Workload Identity Federation.
+The cloud values and where they are stored are listed in [Cloud Environments and Deployment](#cloud-environments-and-deployment).
+
+## Cloud Environments and Deployment
+
+Three cloud environments run the `prod` image on Cloud Run (service `cognivoice-api`, region `us-central1`), one GCP project each. Everything stays on free tiers: **one free Supabase project is shared by all three environments** (decision 31), and the Google Cloud account has a $5 budget cap.
+
+| Environment   | GCP project                    | Trigger                           | Migrates the database |
+| ------------- | ------------------------------ | --------------------------------- | :-------------------: |
+| `development` | `moliveda-gcloudprojects-dev`  | Push to `develop`                 |          yes          |
+| `staging`     | `moliveda-gcloudprojects-stg`  | Push to `release/**`              |          no           |
+| `production`  | `moliveda-gcloudprojects-prod` | Tag `vX.Y.Z` on `main` + approval |          no           |
+
+Every deploy workflow runs the full test gate first, then `_deploy.yml`: Workload Identity Federation → build the image once (or promote the image built from the same Git tree, by digest) → migration job (development only) → new revision with no traffic → `scripts/smoke_test.py` against it → shift traffic. Roll back with `gcloud run services update-traffic cognivoice-api --to-revisions=<previous>=100`.
+
+**One-time environment setup** (idempotent; safe to re-run; `DRY_RUN=1` prints the commands instead):
+
+```bash
+infra/scripts/setup_environment.sh dev      # then stg and prod
+infra/scripts/verify_environment.sh dev     # read-only check; prints the GitHub variables
+```
+
+It enables the APIs, lets this repository use the existing `cicd-deployer-*` account through the existing `github-pool`, creates the `cognivoice-runtime` and `cognivoice-tasks-invoker` accounts, the `cognivoice-interactions` queue, the least-privilege bindings, and a versioned backup bucket. Terraform in `infra/terraform/` describes the same architecture but is only formatted and validated (`make infra-check`).
+
+**Manual steps:**
+
+1. **Docker Hub:** create the public repository `<username>/cognivoice-api` and an access token with read/write scope.
+2. **Supabase (free tier):** create one project in a US region close to `us-central1` (for example `us-east-2`), then give the application role its login once (credentials come from the environment, not arguments):
+
+   ```bash
+   DATABASE_MIGRATION_URL='postgresql+asyncpg://postgres.<ref>:<password>@<pooler-host>:5432/postgres' \
+   COGNIVOICE_APP_DB_PASSWORD='<new password>' infra/scripts/configure_database_role.sh
+   ```
+
+   `DATABASE_MIGRATION_URL` uses the session pooler (port 5432); `DATABASE_URL` uses the transaction pooler (port 6543) with user `cognivoice_app.<ref>`. Free projects pause after a week without activity; restore them from the Supabase dashboard.
+
+3. **Gemini:** create an AI Studio API key on the free tier and set its quota cap.
+
+**GitHub values** (set with `gh variable set` / `gh secret set`; secrets are typed in, never passed as arguments):
+
+| Scope                                                | Variables                                                                                                                                                                                                                                                                             | Secrets                                                                                                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository (shared)                                  | `DOCKERHUB_USERNAME`, `SUPABASE_URL`                                                                                                                                                                                                                                                  | `DOCKERHUB_TOKEN`, `DATABASE_URL`, `DATABASE_MIGRATION_URL`, `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `API_KEY_HMAC_SECRET`, `GEMINI_API_KEY` |
+| Environment (`development`, `staging`, `production`) | `APP_ENV`, `GCP_PROJECT_ID`, `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SERVICE_ACCOUNT`, `RUNTIME_SERVICE_ACCOUNT`, `CLOUD_TASKS_QUEUE`, `CLOUD_TASKS_INVOKER_SA`, `SERVICE_URL`, `CLOUD_RUN_MAX_INSTANCES`; optional `DOCS_ENABLED`, `DEMO_ENABLED`, `LOG_LEVEL`, `CORS_ALLOWED_ORIGINS` | none (an environment secret would override the repository one)                                                                                           |
+
+There are no long-lived GCP keys: GitHub authenticates through Workload Identity Federation. Failed deployments are reported by GitHub's default failure emails. Operational procedures are in [`docs/runbooks/`](docs/runbooks/).
 
 ## API Documentation
 
@@ -326,13 +373,14 @@ Every pull request targets `develop` (or `main` for hotfixes) and must pass the 
 
 ## Project Documentation
 
-| Document                         | Content                                                                |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| [`MASTERPLAN.md`](MASTERPLAN.md) | Architecture, data model, API, pipeline, security, operations, roadmap |
-| `AGENTS.md` / `CLAUDE.md`        | Rules for AI coding assistants                                         |
-| [`.env.example`](.env.example)   | Every environment variable, with placeholders                          |
+| Document                           | Content                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| [`MASTERPLAN.md`](MASTERPLAN.md)   | Architecture, data model, API, pipeline, security, operations, roadmap |
+| `AGENTS.md` / `CLAUDE.md`          | Rules for AI coding assistants                                         |
+| [`.env.example`](.env.example)     | Every environment variable, with placeholders                          |
+| [`docs/runbooks/`](docs/runbooks/) | Operational runbooks (requested in Phase 2)                            |
 
-Further documents (`docs/` guides, runbooks, ADRs) are written only on request; decisions are recorded in `MASTERPLAN.md` §2 (decision 30).
+Further documents (`docs/` guides, ADRs) are written only on request; decisions are recorded in `MASTERPLAN.md` §2 (decision 30).
 
 ## License
 

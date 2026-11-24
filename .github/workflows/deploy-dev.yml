@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Development deployment on every push to develop (MASTERPLAN.md §13.2). The
+# full test gate runs first, so a direct push cannot skip it. Development is
+# the only environment that migrates the shared database (decision 31).
+name: deploy-dev
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-development
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test gate
+    uses: ./.github/workflows/_test.yml
+
+  deploy:
+    name: Deploy
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: development
+      run-migrations: true
+      release-tag: development
+    secrets: inherit

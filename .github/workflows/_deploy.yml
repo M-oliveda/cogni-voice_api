@@ -1,0 +1,228 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Reusable deployment (MASTERPLAN.md §13.2): authenticate with Workload
+# Identity Federation -> build the prod image once (or promote the existing one
+# by digest) -> run the migration job -> deploy a revision with no traffic ->
+# smoke test it -> shift traffic. Callers run the test gate first and pass
+# `secrets: inherit`.
+#
+# Images are tagged with the commit and with the Git tree hash. GitFlow merge
+# commits on release/* and main have new commit hashes but the same tree as the
+# develop commit that was built, so the tree tag finds that image and promotes
+# it by digest instead of rebuilding it.
+#
+# One free Supabase database serves every environment (decision 31), so only
+# development migrates it: Alembic refuses to run when the database is at a
+# revision the deployed code does not know, and expand/contract migrations
+# (§13.5) keep the older staging and production code compatible.
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub Environment (development, staging, or production)
+        required: true
+        type: string
+      run-migrations:
+        description: Run the Alembic migration job before deploying
+        required: false
+        type: boolean
+        default: false
+      release-tag:
+        description: Extra Docker Hub tag for the promoted image (for example staging or v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.SERVICE_URL }}
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation
+    env:
+      SERVICE: cognivoice-api
+      MIGRATION_JOB: cognivoice-migrate
+      REGION: ${{ vars.GCP_REGION }}
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      REPOSITORY: docker.io/${{ vars.DOCKERHUB_USERNAME }}/cognivoice-api
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Find an image already built from this tree
+        id: existing
+        run: |
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          if digest="$(docker buildx imagetools inspect "$REPOSITORY:tree-$tree" \
+            --format '{{json .Manifest}}' 2>/dev/null | jq -er .digest)"; then
+            echo "Promoting $REPOSITORY@$digest"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          else
+            echo "No image for tree $tree; building it"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.digest == ''
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build and push the prod image
+        id: build
+        if: steps.existing.outputs.digest == ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: prod
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.REPOSITORY }}:${{ github.sha }}
+            ${{ env.REPOSITORY }}:tree-${{ steps.existing.outputs.tree }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Tag the image for this release
+        id: image
+        env:
+          DIGEST: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          docker buildx imagetools create --tag "$REPOSITORY:$RELEASE_TAG" "$REPOSITORY@$DIGEST"
+          echo "ref=$REPOSITORY@$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      # Values can contain commas, which --set-env-vars cannot carry, so they go
+      # through env-vars files (JSON is valid YAML) outside the workspace.
+      - name: Write the runtime configuration
+        env:
+          APP_ENV: ${{ vars.APP_ENV }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+          DOCS_ENABLED: ${{ vars.DOCS_ENABLED || 'true' }}
+          DEMO_ENABLED: ${{ vars.DEMO_ENABLED || 'true' }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          AI_PROVIDER: gemini
+          TASK_QUEUE_BACKEND: cloud_tasks
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          CLOUD_TASKS_QUEUE: ${{ vars.CLOUD_TASKS_QUEUE }}
+          CLOUD_TASKS_INVOKER_SA: ${{ vars.CLOUD_TASKS_INVOKER_SA }}
+          SERVICE_URL: ${{ vars.SERVICE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          API_KEY_HMAC_SECRET: ${{ secrets.API_KEY_HMAC_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          umask 077
+          python3 - <<'PY'
+          import json, os
+          service = [
+              "APP_ENV", "LOG_LEVEL", "DOCS_ENABLED", "DEMO_ENABLED",
+              "CORS_ALLOWED_ORIGINS", "AI_PROVIDER", "TASK_QUEUE_BACKEND",
+              "GCP_PROJECT_ID", "GCP_REGION", "CLOUD_TASKS_QUEUE",
+              "CLOUD_TASKS_INVOKER_SA", "SERVICE_URL", "SUPABASE_URL",
+              "DATABASE_URL", "SUPABASE_JWT_SECRET", "SUPABASE_SERVICE_ROLE_KEY",
+              "API_KEY_HMAC_SECRET", "GEMINI_API_KEY",
+          ]
+          files = {"service": service, "migration": ["APP_ENV", "DATABASE_MIGRATION_URL"]}
+          for name, keys in files.items():
+              missing = [key for key in keys if not os.environ.get(key) and key != "CORS_ALLOWED_ORIGINS"]
+              if missing:
+                  raise SystemExit(f"missing configuration for {name}: {', '.join(missing)}")
+              path = os.path.join(os.environ["RUNNER_TEMP"], f"{name}.env.yaml")
+              with open(path, "w", encoding="utf-8") as handle:
+                  json.dump({key: os.environ.get(key, "") for key in keys}, handle)
+          PY
+
+      - name: Run the database migrations
+        if: inputs.run-migrations
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+          RUNTIME_SA: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
+        run: |
+          gcloud run jobs deploy "$MIGRATION_JOB" \
+            --project="$PROJECT" --region="$REGION" \
+            --image="$IMAGE" \
+            --service-account="$RUNTIME_SA" \
+            --env-vars-file="$RUNNER_TEMP/migration.env.yaml" \
+            --command=alembic --args=upgrade,head \
+            --tasks=1 --max-retries=0 --task-timeout=600s \
+            --execute-now --wait
+
+      - name: Deploy a revision without traffic
+        id: deploy
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+          RUNTIME_SA: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
+          MAX_INSTANCES: ${{ vars.CLOUD_RUN_MAX_INSTANCES || '2' }}
+        run: |
+          traffic=(--no-traffic)
+          if ! gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" >/dev/null 2>&1; then
+            # A new service cannot be created without traffic.
+            traffic=()
+          fi
+          gcloud run deploy "$SERVICE" \
+            --project="$PROJECT" --region="$REGION" \
+            --image="$IMAGE" \
+            --service-account="$RUNTIME_SA" \
+            --env-vars-file="$RUNNER_TEMP/service.env.yaml" \
+            --port=8080 --cpu=1 --memory=512Mi --timeout=120 \
+            --min-instances=0 --max-instances="$MAX_INSTANCES" \
+            --allow-unauthenticated \
+            --tag=candidate "${traffic[@]}"
+          url="$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" \
+            --format=json | jq -er '.status.traffic[] | select(.tag == "candidate") | .url')"
+          echo "candidate-url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Remove the runtime configuration files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/service.env.yaml" "$RUNNER_TEMP/migration.env.yaml"
+
+      - name: Set up Python for the smoke test
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Smoke test the new revision
+        env:
+          CANDIDATE_URL: ${{ steps.deploy.outputs.candidate-url }}
+          DOCS_ENABLED: ${{ vars.DOCS_ENABLED || 'true' }}
+        run: |
+          python -m pip install --quiet --require-hashes --no-deps -r requirements.txt
+          docs=()
+          if [ "$DOCS_ENABLED" = "true" ]; then docs=(--expect-docs); fi
+          python scripts/smoke_test.py --base-url "$CANDIDATE_URL" --attempts 10 "${docs[@]}"
+
+      - name: Shift all traffic to the new revision
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --project="$PROJECT" --region="$REGION" --to-latest

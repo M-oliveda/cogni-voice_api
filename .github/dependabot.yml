@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Automated dependency updates (MASTERPLAN.md §13.6): minor and patch updates
-# are reviewed in a monthly batch; security updates open immediately. The
-# Terraform ecosystem is added with infra/ in Phase 2.
+# are reviewed in a monthly batch; security updates open immediately.
 version: 2
 updates:
   # requirements*.in compiled by pip-compile into hash-pinned requirements*.txt
@@ -41,6 +40,15 @@ updates:
   # Supabase, Kong, and Ollama images in the local docker-compose.yaml
   - package-ecosystem: docker-compose
     directory: /
+    schedule:
+      interval: monthly
+    target-branch: develop
+    commit-message:
+      prefix: ":arrow_up:"
+
+  # Google provider of the validate-only Terraform showcase
+  - package-ecosystem: terraform
+    directory: /infra/terraform
     schedule:
       interval: monthly
     target-branch: develop
