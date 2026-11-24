@@ -13,7 +13,7 @@ SRC := app scripts tests
 LICENSE_ALLOWLIST := MIT;BSD;ISC;Apache;PSF;Python Software Foundation;MPL-2.0;Mozilla Public License 2.0;LGPL;GNU Lesser General Public License;GPL-2.0-or-later;GPLv2+;GPL-3.0;GPLv3;Unlicense;CC0
 
 .DEFAULT_GOAL := help
-.PHONY: help setup env format lint typecheck test-unit test cov licenses run migrate
+.PHONY: help setup env format lint typecheck test-unit test cov licenses run migrate smoke
 
 help: ## Show the available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -53,6 +53,9 @@ run: ## Run the API locally with hot reload (needs the Supabase services)
 
 migrate: ## Apply the Alembic migrations (DATABASE_MIGRATION_URL)
 	$(BIN)/alembic upgrade head
+
+smoke: ## Smoke test a deployed revision: make smoke URL=https://...
+	$(BIN)/python scripts/smoke_test.py --base-url "$(URL)" --expect-docs
 
 licenses: ## Check runtime dependency licences against the allowlist
 	$(BIN)/pip-licenses --from=mixed --partial-match \
