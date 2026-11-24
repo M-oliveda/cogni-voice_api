@@ -133,7 +133,7 @@ python scripts/create_super_admin.py
 | `make load-test` | Run the Locust load-test scenarios (on demand)                                                      |
 | `make licenses`  | Check runtime dependency licences against the GPL-2.0-or-later allowlist                            |
 
-Run `make help` to list the targets available today: `run`, `worker`, `migrate`, `seed`, and `load-test` are added as their roadmap phases land.
+Run `make help` to list the targets available today: `worker`, `seed`, and `load-test` are added as their roadmap phases land.
 
 ### Dependencies
 
@@ -201,13 +201,14 @@ Local values live in `.env` (git-ignored); `.env.example` is committed with plac
 | --------------------------- | :----: | ----------------------------------------------------------------------------- | --------------------------- |
 | `APP_ENV`                   |   no   | `local`, `development`, `staging`, or `production`                            | `local`                     |
 | `LOG_LEVEL`                 |   no   | Log verbosity                                                                 | `INFO`                      |
-| `DOCS_ENABLED`              |   no   | Expose Swagger UI, ReDoc, and `/openapi.json`                                 | `true`                      |
+| `DOCS_ENABLED`              |   no   | Expose each version's Swagger UI, ReDoc, and OpenAPI schema                   | `true`                      |
 | `CORS_ALLOWED_ORIGINS`      |   no   | Comma-separated allowlist of origins                                          | `http://localhost:3000`     |
 | `DATABASE_URL`              |  yes   | Application connection (`cognivoice_app` role; pooler URL in the cloud)       | `postgresql+asyncpg://...`  |
 | `DATABASE_MIGRATION_URL`    |  yes   | Alembic connection (admin role), used only by the migration job               | `postgresql+asyncpg://...`  |
 | `DB_POOL_SIZE`              |   no   | Connections kept per instance                                                 | `5`                         |
 | `DB_POOL_MAX_OVERFLOW`      |   no   | Extra connections allowed under load                                          | `5`                         |
 | `DB_POOL_TIMEOUT`           |   no   | Seconds to wait for a pooled connection                                       | `10`                        |
+| `DB_STATEMENT_TIMEOUT_MS`   |   no   | `statement_timeout` set in every API transaction (milliseconds)               | `5000`                      |
 | `DB_ECHO`                   |   no   | Log SQL statements (local debugging only)                                     | `false`                     |
 | `SUPABASE_URL`              |   no   | Supabase project URL                                                          | `http://127.0.0.1:54321`    |
 | `SUPABASE_JWT_SECRET`       |  yes   | JWT verification secret (or configure the JWKS URL)                           | _(from Supabase)_           |
@@ -255,15 +256,16 @@ GitHub Environments (`development`, `staging`, `production`) store non-secret co
 
 ## API Documentation
 
-When the API is running (and `DOCS_ENABLED=true`):
+When the API is running (and `DOCS_ENABLED=true`), each major version has its own documentation under its prefix. A version's schema lists its own operations plus the unversioned probes; `/docs` and `/redoc` redirect to the latest version.
 
-| URL                                        | Description                                           |
-| ------------------------------------------ | ----------------------------------------------------- |
-| `http://localhost:8000/docs`               | Swagger UI                                            |
-| `http://localhost:8000/redoc`              | ReDoc                                                 |
-| `http://localhost:8000/openapi.json`       | OpenAPI schema                                        |
-| `http://localhost:8000/demo`               | Interactive demo page (on by default; `DEMO_ENABLED`) |
-| `http://localhost:8000/healthz`, `/readyz` | Liveness and readiness probes                         |
+| URL                                         | Description                                           |
+| ------------------------------------------- | ----------------------------------------------------- |
+| `http://localhost:8000/api/v1/docs`         | Swagger UI for v1                                     |
+| `http://localhost:8000/api/v1/redoc`        | ReDoc for v1                                          |
+| `http://localhost:8000/api/v1/openapi.json` | OpenAPI schema for v1                                 |
+| `http://localhost:8000/docs`, `/redoc`      | Redirect to the latest version's docs                 |
+| `http://localhost:8000/demo`                | Interactive demo page (on by default; `DEMO_ENABLED`) |
+| `http://localhost:8000/healthz`, `/readyz`  | Liveness and readiness probes                         |
 
 Authentication:
 
@@ -302,6 +304,8 @@ Development is **test-first**: every change ships with its tests, and merges and
 | Agent evaluation      | `tests/evals`       | LLM-judged quality with DeepEval (nightly and on demand)              |
 | Load                  | `tests/load`        | Locust scenarios (on demand, never against production)                |
 
+`make test` needs Docker: integration and RLS tests start a Supabase Postgres container with Testcontainers. The E2E suite runs against the local Supabase services, so start them first with `docker compose up -d --wait db auth kong`; without them the E2E tests are skipped locally (CI sets `E2E_REQUIRED=1`, which makes a missing stack fail). After an intended API change, regenerate the per-version OpenAPI snapshots (`tests/contract/openapi.v<major>.snapshot.json`) with `.venv/bin/pytest tests/contract --no-cov --update-openapi-snapshot` and review their diff.
+
 The local `pre-commit` framework blocks confidential files and runs fast checks on commit (formatting and linting of staged files, strict mypy on the whole project), validates the Gitmoji commit message, and runs the tests related to your unpushed commits on push (the full suite when the branch has no upstream yet). **CI re-runs every check and enforces the full suite and the 100% coverage gate**, so `--no-verify` cannot get untested code merged.
 
 ## Contributing
@@ -311,7 +315,7 @@ The local `pre-commit` framework blocks confidential files and runs fast checks 
   - `:sparkles: Add user authentication`
   - `:bug: Fix token validation issue`
   - `:memo: Update README with setup instructions`
-- **Code standards:** Black (88 columns), isort, flake8, pylint, strict mypy, type hints on all functions, Google-style docstrings, `Optional[X]` for optional types, absolute imports.
+- **Code standards:** Black (88 columns), isort, flake8, pylint, strict mypy, type hints on all functions, Google-style docstrings, `X | None` for optional types, absolute imports.
 - **Architecture rules:** route → service → repository; tenant scoping plus RLS; never bypass RLS; the tenant is never an LLM tool argument; data sent to the LLM is encoded in TOON (the REST API stays JSON); PII masking is mandatory; never log interaction text, prompts, or secrets; secrets live in GitHub Secrets and the git-ignored `.env`.
 - **Infrastructure:** Terraform is only formatted and validated (`terraform fmt`, `terraform validate`), never applied; cloud environments are set up with the scripts in `infra/scripts/` and the CI/CD pipelines.
 - **Migrations:** applied migrations are never edited; use backward-compatible expand/contract changes.
