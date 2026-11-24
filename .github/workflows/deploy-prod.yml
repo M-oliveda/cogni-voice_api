@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Production deployment for a vX.Y.Z tag on main (MASTERPLAN.md §13.2). The
+# full test gate runs first, the tagged commit must be on main, and the
+# production GitHub Environment requires a manual approval before deploying.
+name: deploy-prod
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test gate
+    uses: ./.github/workflows/_test.yml
+
+  on-main:
+    name: Tag is on main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository with history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a semantic version tag reachable from main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not a vX.Y.Z tag"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$TAG is not on main"
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy
+    needs: [test, on-main]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: production
+      release-tag: ${{ github.ref_name }}
+    secrets: inherit

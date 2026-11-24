@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Staging deployment on every push to a release/* branch (MASTERPLAN.md
+# §13.2). The full test gate runs first. The image built for development is
+# promoted by digest; the shared database is already migrated (decision 31).
+name: deploy-stg
+
+on:
+  push:
+    branches: ["release/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test gate
+    uses: ./.github/workflows/_test.yml
+
+  deploy:
+    name: Deploy
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: staging
+      release-tag: staging
+    secrets: inherit
