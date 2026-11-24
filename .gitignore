@@ -39,3 +39,6 @@ design/
 .idea/
 .vscode/
 .DS_Store
+
+# Supabase CLI cache
+supabase/.temp/
