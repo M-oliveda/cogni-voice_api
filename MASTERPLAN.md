@@ -62,7 +62,7 @@
 | 10  | Input policy              | Max **1,000 characters** per item; PII masking is **mandatory** before storage or any LLM call                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Cost control and data minimization                                                              |
 | 11  | Queue                     | **Cloud Tasks** in the cloud; DB-polling worker locally, behind one `TaskQueue` interface (§8)                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Durable, retried, rate-limited delivery without running workers                                 |
 | 12  | Scope exclusions          | No webhooks, alerts, quotas, rate limiting, or billing in v1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Keeps v1 focused; tables `webhooks` and `usage_logs` are not created                            |
-| 13  | Documentation             | Swagger UI (`/docs`), ReDoc (`/redoc`), Tailwind-styled `/demo` page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Runnable explanation of the backend                                                             |
+| 13  | Documentation             | Per-version Swagger UI (`/api/v1/docs`), ReDoc (`/api/v1/redoc`), and schema; Tailwind-styled `/demo` page                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Runnable explanation of the backend                                                             |
 | 14  | Environments              | `local`, `development`, `staging`, `production`. No PR previews. One GCP project per cloud environment: `moliveda-gcloudprojects-dev`, `-stg`, `-prod`; region `us-central1`                                                                                                                                                                                                                                                                                                                                                                                               | Isolation of data, secrets, and blast radius                                                    |
 | 15  | GCP authentication        | **Workload Identity Federation**; no long-lived service-account keys. Each environment project already has a WIF pool (`github-pool`) and a deployer service account (`cicd-deployer-dev`, `cicd-deployer-stg`, `cicd-deployer-prod`); these are **reused, not recreated** (verify with `gcloud iam service-accounts list` and `gcloud iam workload-identity-pools list`). Runtime secrets live in **GitHub Secrets**, not Secret Manager (§12, §13.1)                                                                                                                     | Keyless, least privilege                                                                        |
 | 16  | Infrastructure as code    | Terraform is included **only as a showcase**: `terraform fmt -check` and `terraform validate` run in hooks and CI; `terraform apply` is never run. The GCP projects already contain other resources, so Terraform must not manage or mix with them. The cloud environments are configured with versioned shell scripts (`gcloud`) and CI/CD pipelines (§13.3)                                                                                                                                                                                                              | Demonstrates infrastructure skills without touching existing projects                           |
@@ -70,7 +70,7 @@
 | 18  | Testing                   | **Test-first.** Every feature ships with its tests. **100% merged line and branch coverage** is enforced from the first commit of application code. Agent quality is evaluated with DeepEval (§17)                                                                                                                                                                                                                                                                                                                                                                         | Untested code must never merge or deploy                                                        |
 | 19  | Git workflow              | GitFlow, Semantic Versioning, Gitmoji commit messages, `pre-commit` framework hooks in three stages, re-verified in CI (§15)                                                                                                                                                                                                                                                                                                                                                                                                                                               | Consistent history; hooks can be bypassed, CI cannot                                            |
 | 20  | AI assistant files        | `AGENTS.md` is the single source of rules; `CLAUDE.md` is a symlink to it (§16)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | One rule set, no duplication                                                                    |
-| 21  | Typing style              | `Optional[X]` for optional types, as the charter states                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Charter convention                                                                              |
+| 21  | Typing style              | `X \| None` (PEP 604) for optional types, enforced by pylint `consider-alternative-union-syntax`; replaces the charter's `Optional[X]`                                                                                                                                                                                                                                                                                                                                                                                                                                     | Native syntax on Python 3.14; one style enforced by the gate                                    |
 | 22  | Demo availability         | Enabled in **every** environment, including production, by default (`DEMO_ENABLED=true`), so external people can test the app. It is read-only and pinned to the demo tenant (§11); it can still be switched off with `DEMO_ENABLED=false`                                                                                                                                                                                                                                                                                                                                 | Public, safe, read-only demo access; AI cost is bounded by caps (§24.2)                         |
 | 23  | Naming and licence        | Repository `cogni-voice_api` (GitHub `M-oliveda/cogni-voice_api`); product name CogniVoice; **GPL-2.0-or-later** licence (GNU General Public License v2 or any later version; SPDX `GPL-2.0-or-later`), chosen so Apache-2.0 runtime dependencies can be combined under GPLv3 (§26). Runtime dependency licences are checked for compatibility (§26)                                                                                                                                                                                                                       | Project convention; the `LICENSE` file holds the full GPLv2 text                                |
 | 24  | Local Supabase and Ollama | **One single `docker-compose.yaml`** runs the whole local stack: a **trimmed set** of Supabase services based on Supabase's official self-hosting Compose files (Postgres + pgvector, Auth, the Kong gateway; Studio and pg-meta behind the `studio` profile), the `api` and the `worker`, so `docker compose up` starts everything together. Storage, Realtime, PostgREST, Edge Functions, and analytics are left out because the API does not use them (§13.4). Ollama runs natively on the Mac host (Metal acceleration) and is reached at `host.docker.internal:11434` | One command to start; only the services the API uses; Docker on Apple Silicon has no GPU access |
@@ -174,7 +174,7 @@ flowchart LR
 
 - **No FastAPI** `BackgroundTasks` **for AI work in the cloud.** On Cloud Run with request-based billing, CPU is throttled after the response is sent, so background work is unreliable. Cloud Tasks gives durable, retried, rate-limited delivery.
 - **Same code path locally and in the cloud.** Both the Cloud Tasks handler and the local worker call one `ProcessInteractionService`.
-- **Error envelope** on every failure: `{"error": {"code": "...", "message": "...", "details": {...}, "request_id": "..."}}`, produced by global exception handlers (validation, auth, not found, DB unavailable, AI provider failure).
+- **Error envelope** on every failure: `{"error": {"code": "...", "message": "...", "details": {...}, "request_id": "..."}}`, produced by global exception handlers (validation, auth, not found, DB unavailable, AI provider failure). `code` is a stable lowercase snake_case identifier (`validation_error`, `not_found`, `method_not_allowed`, `database_unavailable`, `ai_provider_unavailable`, `internal_error`, ...) that clients may rely on; `message` is human-readable and may change. Validation details list only the location, message, and type of each error, never the submitted input. Unhandled exceptions are caught by the request middleware so the `500` still carries the `request_id`.
 - **Cursor (keyset) pagination** on list endpoints: `limit` (max 100) and `cursor`.
 - **UTC everywhere**; ISO 8601 timestamps.
 
@@ -238,7 +238,7 @@ LangGraph's Postgres checkpointer creates its own tables in a separate `langgrap
 RLS only works if the application does **not** connect as a role that bypasses it. So:
 
 1. **Roles.** Migrations run as the Supabase admin role. The API connects as `cognivoice_app`: not a superuser, `NOBYPASSRLS`, not the table owner. Tables use `ENABLE` **and** `FORCE ROW LEVEL SECURITY`.
-2. **Per-transaction context.** A dependency opens a transaction and calls `set_config('app.tenant_id', <uuid>, true)` (parameterized, transaction-local, works through Supabase's transaction pooler). Policy on tenant tables: `tenant_id = current_setting('app.tenant_id', true)::uuid`. If the setting is missing, the comparison is null and **no rows are visible** (fail closed).
+2. **Per-transaction context.** A dependency opens a transaction and calls `set_config('app.tenant_id', <uuid>, true)` (parameterized, transaction-local, works through Supabase's transaction pooler). The same transaction sets `app.role` and `statement_timeout` (`DB_STATEMENT_TIMEOUT_MS`). Policies read the context through the baseline helpers `app.current_tenant_id()` and `app.current_user_role()` (schema `app`), which return null when the setting is missing or empty. Policy on tenant tables: `tenant_id = app.current_tenant_id()`. If the setting is missing, the comparison is null and **no rows are visible** (fail closed).
 3. **Application scoping.** Repositories also filter by tenant explicitly. RLS is the safety net, not the only control.
 4. **Cross-tenant operations** (local worker claiming pending rows, API-key lookup before the tenant is known, super-admin system stats) go through a few **explicit** `SECURITY DEFINER` **SQL functions** that return only what is needed (for example `lookup_api_key(prefix)` and `admin_system_stats()` returning aggregates).
 5. `tenants` **and** `users` additionally allow `app.role = 'super_admin'` in their policies. Content tables never do.
@@ -258,7 +258,7 @@ Base path `/api/v1`. Every endpoint has `summary`, `description`, `tags`, `opera
 | ------ | ---------------------------------- | ---------------------------------------------------------- |
 | GET    | `/healthz`                         | Liveness                                                   |
 | GET    | `/readyz`                          | Readiness (database reachable)                             |
-| GET    | `/docs`, `/redoc`, `/openapi.json` | Swagger UI, ReDoc, schema                                  |
+| GET    | `/docs`, `/redoc`                  | Redirect to the latest version's docs                      |
 | GET    | `/demo`                            | Tailwind demo page (HTML)                                  |
 | GET    | `/demo/api/*`                      | Read-only demo data, pinned server-side to the demo tenant |
 
@@ -330,14 +330,15 @@ Ingest request example:
 
 | Method | Path                                  | Description                                                                                                                                               |
 | ------ | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/internal/tasks/process-interaction` | Called only by Cloud Tasks. Verifies the Google OIDC token (audience = service URL, email = queue invoker service account). Excluded from `/openapi.json` |
+| POST   | `/internal/tasks/process-interaction` | Called only by Cloud Tasks. Verifies the Google OIDC token (audience = service URL, email = queue invoker service account). Excluded from every OpenAPI schema |
 
 ### 7.8 API versioning and deprecation
 
 - **Versioning:** the major version is in the path (`/api/v1`, later `/api/v2`). Query-parameter or header versioning is not used. Several major versions may be served side by side by mounting separate routers.
+- **Per-version documentation:** one application serves every version (no FastAPI sub-applications, so the lifespan, middleware, and error handlers are shared), but each version has its own schema, Swagger UI, and ReDoc under its prefix: `/api/v1/openapi.json`, `/api/v1/docs`, `/api/v1/redoc`. A version's schema holds its own operations plus the unversioned system routes (§7.1), its title names the major version (`CogniVoice API v1`), and `info.version` is the application release. There is no combined root schema; `/docs` and `/redoc` redirect to the latest version. Versions are listed in `API_VERSIONS` (`app/main.py`).
 - **What is a breaking change:** removing or renaming a field, endpoint, or enum value; changing a type, a default, or validation to be stricter; changing authorization requirements or the error envelope. Breaking changes require a new major version.
 - **What is not breaking (allowed within** `v1`**):** adding endpoints, optional request fields, response fields, or new enum values that clients are told to tolerate. Client documentation states that **responses may gain fields**.
-- **Contract protection:** the OpenAPI snapshot test (§17.2) fails on any change; updating the snapshot is a reviewed, deliberate act, and a diff classifier in CI labels the change as breaking or non-breaking.
+- **Contract protection:** the OpenAPI snapshot test (§17.2) keeps one snapshot per major version and fails on any change; updating the snapshot is a reviewed, deliberate act, and a diff classifier in CI labels the change as breaking or non-breaking.
 - **Deprecation process:**
   1. Announce in the release notes and `docs/` changelog at least **6 months** before removal.
   2. Mark the operation `deprecated: true` in OpenAPI and add the `Deprecation` and `Sunset` response headers (and a `Link` header to the replacement).
@@ -506,7 +507,7 @@ Agent testing has three layers (deterministic graph tests, trajectory assertions
 
 ## 11. Documentation and Demo
 
-- **Swagger UI** at `/docs` (persisted authorization), **ReDoc** at `/redoc`, schema at `/openapi.json`. Rich OpenAPI metadata: description, version, contact, license, tag descriptions, security schemes, examples on every schema, per-environment `servers`.
+- Per major version (§7.8): **Swagger UI** at `/api/v1/docs` (persisted authorization), **ReDoc** at `/api/v1/redoc`, schema at `/api/v1/openapi.json`; `/docs` and `/redoc` redirect to the latest version. Rich OpenAPI metadata: description, version, contact, license, tag descriptions, security schemes, examples on every schema, per-environment `servers`.
 - `/demo`: a single Tailwind-styled HTML page (Tailwind via CDN, demo only) designed to be read alongside the code. Sections:
   1. _How it works_: the ingestion → analysis → search/agent flow with the actual sample payloads.
   2. _Dashboard_: analytics from the seeded demo tenant.
@@ -561,6 +562,7 @@ GitHub-only values (never part of the application): `DOCKERHUB_USERNAME` (variab
 | `AGENT_MAX_STEPS`, `AGENT_MAX_TOKENS`, `AGENT_TIMEOUT_SECONDS`   |   no    | Agent guardrails                                                     |
 | `DEMO_ENABLED`, `DEMO_TENANT_ID`                                 |   no    | Demo page; `DEMO_ENABLED` defaults to `true` in all environments     |
 | `DB_POOL_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`                        |   no    | Pool overflow and wait timeout (§20.2)                               |
+| `DB_STATEMENT_TIMEOUT_MS`                                        |   no    | `statement_timeout` set in every API transaction (§20.2); `5000`     |
 | `TRACING_ENABLED`                                                |   no    | Optional OpenTelemetry export (§19.6); off by default                |
 | `AGENT_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`                   |   no    | Retention windows for agent threads and run audit (§23.1)            |
 | `POSTGRES_PASSWORD`, `COGNIVOICE_APP_DB_PASSWORD`                |   yes   | Local only: Compose Postgres admin and `cognivoice_app` passwords    |
@@ -751,7 +753,7 @@ cogni-voice_api/
 
 Structure follows the charter's FastAPI layout with `repositories/` and `agents/` added; `tests/` sits at the root, parallel to `app/`.
 
-**Code standards:** Black (88 columns), isort, flake8, pylint, mypy strict, type hints on all functions, Google-style docstrings, `Optional[X]` for optional types, absolute imports, custom exception classes, `logging` (structured JSON logs on stdout, §19), the `secrets` module for sensitive randomness, no `eval`/`exec`, Bandit in CI. Python 3.14 defers annotation evaluation, so code that introspects annotations (Pydantic, FastAPI, SQLAlchemy `Mapped[]`) is covered by tests from the first phase.
+**Code standards:** Black (88 columns), isort, flake8, pylint, mypy strict, type hints on all functions, Google-style docstrings, `X | None` for optional types, absolute imports, custom exception classes, `logging` (structured JSON logs on stdout, §19), the `secrets` module for sensitive randomness, no `eval`/`exec`, Bandit in CI. Python 3.14 defers annotation evaluation, so code that introspects annotations (Pydantic, FastAPI, SQLAlchemy `Mapped[]`) is covered by tests from the first phase.
 
 **Makefile targets:** `setup` (venv, dependencies, hooks), `env` (local `.env` with generated secrets), `format`, `lint`, `typecheck`, `test-unit`, `test`, `cov`, `run`, `worker`, `migrate`, `seed`, `load-test` (Locust, §20.5), `licenses` (dependency licence check, §13.6).
 
@@ -918,7 +920,7 @@ Both files live at the repository root and are **required** repository files.
 1. Project summary and a pointer to `MASTERPLAN.md`.
 2. Setup and daily commands (`make setup`, `make test`, `make lint`, run/migrate/seed).
 3. Architecture rules: layering (route → service → repository), tenant scoping, RLS, "the tenant is never an LLM tool argument", provider abstraction, `TaskQueue` interface, **data sent to the LLM is encoded in TOON** (§9.2) while REST stays JSON.
-4. Code standards: Python 3.14, Black/isort/flake8/mypy, type hints, `Optional[X]`, docstrings, error envelope.
+4. Code standards: Python 3.14, Black/isort/flake8/mypy, type hints, `X | None`, docstrings, error envelope.
 5. Testing rules: test-first, every change ships with tests, 100% merged branch coverage, no live AI calls outside `evals/` and post-deploy smoke tests, use the `fake` provider, `# pragma: no cover` only with a written justification.
 6. Security rules: no secrets in code or logs, PII masking is mandatory, never disable or bypass RLS, no super-admin bypass on content tables.
 7. Git rules: GitFlow, Gitmoji commit format (first line ≤ 72 characters, no trailing period), Semantic Versioning, Python `pre-commit` hooks (§15), never use `--no-verify`, never force-push shared branches.
@@ -1086,7 +1088,7 @@ Targets for the first release, validated by load testing (§20.5) rather than as
 - **Cloud Run concurrency** is set explicitly (start at 20 requests per instance, not the default 80) so concurrent requests cannot exhaust the per-instance pool; revisit after load tests.
 - **Pooler mode.** Transaction mode, prepared-statement cache disabled (§12.3). `set_config(..., true)` is transaction-local, so RLS context cannot leak between pooled connections; a test in `tests/rls` asserts this.
 - **Query hygiene.** Every list/analytics query has a documented index (§6.2). Queries slower than 100 ms in staging load tests are examined with `EXPLAIN (ANALYZE, BUFFERS)` and the result is recorded in the pull request. N+1 patterns are prevented by explicit eager loading and checked by a query-count assertion on list endpoints.
-- **Timeouts.** `statement_timeout` is set on the `cognivoice_app` role (analytics 10 s, default 5 s) and `idle_in_transaction_session_timeout` is enabled so a stuck request cannot hold locks or connections.
+- **Timeouts.** `statement_timeout` is set on the `cognivoice_app` role (default 5 s) and `idle_in_transaction_session_timeout` (30 s) is enabled so a stuck request cannot hold locks or connections. Because a transaction pooler may drop session startup parameters, every API transaction also sets `statement_timeout` itself with `set_config(..., true)` from `DB_STATEMENT_TIMEOUT_MS`; analytics raise it to 10 s for their transaction.
 - **Vacuum and growth.** `interaction_vectors` and `interactions` are append-heavy; autovacuum settings are reviewed at the first 100K rows, and HNSW build parameters (`m`, `ef_construction`) and `hnsw.ef_search` are tuned from measured recall and latency.
 
 ### 20.3 Caching strategy
@@ -1291,7 +1293,7 @@ Fixed costs to budget separately: the Supabase plan for three projects (producti
 
 ### Phase 0 — Repository, tooling and quality gates
 
-- [ ] Create the GitHub repository `cogni-voice_api` with `main` (`README.md`, `LICENSE` GPL-2.0-or-later) and `develop`; configure branch protection
+- [x] Create the GitHub repository `cogni-voice_api` with `main` (`README.md`, `LICENSE` GPL-2.0-or-later) and `develop`; configure branch protection
 - [x] Licensing: add the GPLv2 `LICENSE` text, `license = "GPL-2.0-or-later"` in `pyproject.toml`, and `SPDX-License-Identifier: GPL-2.0-or-later` headers; add a runtime dependency-licence check (`pip-licenses`) to CI with an allowlist reviewed for GPL-2.0-or-later compatibility
 - [x] Write the minimal starting `AGENTS.md` (§16) and create the `CLAUDE.md` symlink (`ln -s AGENTS.md CLAUDE.md`); add the CI symlink check
 - [x] Set up Python 3.14: `.python-version`, `.venv`, `requirements.in`, `pip-tools` compilation
@@ -1320,19 +1322,30 @@ Fixed costs to budget separately: the Supabase plan for three projects (producti
 
 ### Phase 1 — Application architecture skeleton
 
-- [ ] App factory in `main.py`; `pydantic-settings` configuration with environment validation (including the `fake` provider restriction)
-- [ ] Structured JSON logging with the field set of §19.2, secret/text redaction filter, and request-ID middleware (`request_id` correlation)
-- [ ] Pool, overflow, timeout and `statement_timeout` settings (§20.2) as validated configuration
-- [ ] Error envelope and global exception handlers
-- [ ] Async engine and session; RLS context dependency (`set_config` per transaction); `cognivoice_app` role setup
-- [ ] Alembic baseline migration: extensions (pgvector), roles, grants, RLS helper functions
-- [ ] Layer scaffolding: base repository, service base, dependency wiring
-- [ ] `TaskQueue`, `LLMProvider`, and `EmbeddingProvider` interfaces plus the `fake` provider
-- [ ] Health endpoints, OpenAPI metadata, Swagger UI, ReDoc
-- [ ] **Tests:** unit (config, errors, logging, middleware), integration (session and RLS context, migration up/down/up, no model drift), contract (OpenAPI snapshot)
-- [ ] **E2E harness** (uvicorn + the Supabase services from Compose in CI) with the first walking-skeleton scenario
+- [x] App factory in `main.py`; `pydantic-settings` configuration with environment validation (including the `fake` provider restriction)
+- [x] Structured JSON logging with the field set of §19.2, secret/text redaction filter, and request-ID middleware (`request_id` correlation)
+- [x] Pool, overflow, timeout and `statement_timeout` settings (§20.2) as validated configuration
+- [x] Error envelope and global exception handlers
+- [x] Async engine and session; RLS context dependency (`set_config` per transaction); `cognivoice_app` role setup
+- [x] Alembic baseline migration: extensions (pgvector), roles, grants, RLS helper functions
+- [x] Layer scaffolding: base repository, service base, dependency wiring
+- [x] `TaskQueue`, `LLMProvider`, and `EmbeddingProvider` interfaces plus the `fake` provider
+- [x] Health endpoints, OpenAPI metadata, per-version Swagger UI and ReDoc (`/api/v1/docs`, `/api/v1/redoc`)
+- [x] **Tests:** unit (config, errors, logging, middleware), integration (session and RLS context, migration up/down/up, no model drift), contract (OpenAPI snapshot)
+- [x] **E2E harness** (uvicorn + the Supabase services from Compose in CI) with the first walking-skeleton scenario
 
 **Done when:** the skeleton runs locally and in CI with 100% coverage and a working E2E harness.
+
+**Phase 1 outcomes:**
+
+- Optional types use `X | None` (PEP 604); pylint's `consider-alternative-union-syntax` rejects `Optional[X]` (decision 21).
+- Configuration rejects `AI_PROVIDER=fake` or `ollama`, and `TASK_QUEUE_BACKEND=db`, outside `local`; `gemini` needs `GEMINI_API_KEY`, and `cloud_tasks` needs its project, queue, invoker, and `SERVICE_URL`. Providers are built lazily on first use: until the Gemini and Ollama adapters land in Phase 4, selecting them fails only when a provider is needed, so the app starts with the local default.
+- `LLMProvider` exposes a LangChain `BaseChatModel`; `EmbeddingProvider` has async `embed_documents` and `embed_query` so query/document handling stays inside each provider. The `fake` chat model replays scripted text or `AIMessage` replies (including tool calls) and supports `bind_tools`.
+- The engine disables asyncpg's prepared-statement caches and uses unique statement names in every environment, so local behaviour matches Supabase's transaction pooler.
+- Migrations run as `postgres`. On PostgreSQL 16+ it can only alter roles it administers, so the local init SQL grants it `ADMIN` on `cognivoice_app` (without `INHERIT` or `SET`); in the cloud `postgres` creates the role and is its admin automatically. A local database initialised before Phase 1 needs that one `GRANT` applied once (or `docker compose down -v`). The baseline keeps `vector` and the role on downgrade.
+- Each version's OpenAPI snapshot lives in `tests/contract/openapi.v<major>.snapshot.json` (built by `app/api/docs.py`) and is regenerated only with `pytest tests/contract --no-cov --update-openapi-snapshot`. The breaking-change diff classifier (§7.8) is still to do.
+- The E2E harness serves the app with uvicorn in a background thread (so coverage sees it) against the Compose `db`, `auth`, and `kong` services; CI starts them and sets `E2E_REQUIRED=1`. The out-of-process worker joins the harness in Phase 4.
+- No service base class was added: an empty base would hold nothing until services exist; services take their dependencies in their constructors.
 
 ### Phase 2 — Infrastructure and CI/CD pipelines
 
@@ -1348,7 +1361,7 @@ Fixed costs to budget separately: the Supabase plan for three projects (producti
 - [ ] Manual cost safety nets (documented, scripted where possible): Cloud Billing budget emails per project, Gemini key quota cap, versioned backup/export bucket (§21.2); no monitoring stack (§19)
 - [ ] Runbook skeletons in `docs/runbooks/` using the fixed template (§22), one per critical scenario
 - [ ] **Tests:** smoke-script unit tests; a deliberately failing branch proving that failing tests or coverage block deployment
-- [ ] Deploy the walking skeleton (`/healthz`, `/readyz`, `/docs`) to development, staging, and production
+- [ ] Deploy the walking skeleton (`/healthz`, `/readyz`, `/api/v1/docs`) to development, staging, and production
 
 **Done when:** a merge to `develop` deploys through the gate to development, and the same path works for staging and production.
 

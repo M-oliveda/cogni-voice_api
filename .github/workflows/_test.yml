@@ -51,8 +51,24 @@ jobs:
       - name: Audit dependencies for known vulnerabilities
         run: .venv/bin/pip-audit --disable-pip -r requirements.txt -r requirements-dev.txt
 
+      - name: Start the local Supabase services for the E2E suite
+        run: |
+          make env
+          docker compose up -d --wait db auth kong
+
       - name: Run the full test suite with the coverage gate
+        env:
+          # A missing E2E stack fails the run instead of skipping the suite.
+          E2E_REQUIRED: "1"
         run: make cov
+
+      - name: Show the Supabase service logs
+        if: failure()
+        run: docker compose logs db auth kong
+
+      - name: Stop the local Supabase services
+        if: always()
+        run: docker compose down -v
 
       - name: Upload the coverage report
         if: always()

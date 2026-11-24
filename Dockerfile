@@ -40,6 +40,9 @@ FROM base AS prod
 COPY --from=builder /opt/venv /opt/venv
 # Source stays owned by root so the runtime user cannot modify it.
 COPY app/ ./app/
+# The same image runs the Alembic migration job (MASTERPLAN.md §13.2).
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
 USER app
 # Cloud Run sends traffic to port 8080 by default.
 EXPOSE 8080

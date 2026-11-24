@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-# Developer commands. Targets for later phases (run, worker, migrate, seed,
-# load-test) are added as those phases land (MASTERPLAN.md §25).
+# Developer commands. Targets for later phases (worker, seed, load-test) are
+# added as those phases land (MASTERPLAN.md §25).
 
 PYTHON ?= python3.14
 VENV := .venv
@@ -13,7 +13,7 @@ SRC := app scripts tests
 LICENSE_ALLOWLIST := MIT;BSD;ISC;Apache;PSF;Python Software Foundation;MPL-2.0;Mozilla Public License 2.0;LGPL;GNU Lesser General Public License;GPL-2.0-or-later;GPLv2+;GPL-3.0;GPLv3;Unlicense;CC0
 
 .DEFAULT_GOAL := help
-.PHONY: help setup env format lint typecheck test-unit test cov licenses
+.PHONY: help setup env format lint typecheck test-unit test cov licenses run migrate
 
 help: ## Show the available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -47,6 +47,12 @@ test: ## Run the full suite with the 100% coverage gate
 
 cov: ## Run the full suite and write htmlcov/ and coverage.xml
 	$(BIN)/pytest --cov-report=html --cov-report=xml
+
+run: ## Run the API locally with hot reload (needs the Supabase services)
+	$(BIN)/uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+
+migrate: ## Apply the Alembic migrations (DATABASE_MIGRATION_URL)
+	$(BIN)/alembic upgrade head
 
 licenses: ## Check runtime dependency licences against the allowlist
 	$(BIN)/pip-licenses --from=mixed --partial-match \

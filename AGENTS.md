@@ -4,7 +4,7 @@ Rules for AI coding assistants working on **CogniVoice API**. This file is the s
 
 ## 1. Project summary
 
-CogniVoice is a B2B, API-first, multi-tenant platform for customer-feedback intelligence: it ingests raw text, masks PII, analyzes it with an LLM, stores embeddings, and exposes analytics, semantic search, and a LangGraph agent. Stack: Python 3.14, FastAPI, SQLAlchemy 2.x async, Alembic, Supabase (Postgres, pgvector, Auth), Gemini (cloud) and Ollama (local). Status: Phase 0 (tooling, quality gates, local stack) is complete; `run`, `worker`, `migrate`, and `seed` become available as their roadmap phases land (`MASTERPLAN.md` §25).
+CogniVoice is a B2B, API-first, multi-tenant platform for customer-feedback intelligence: it ingests raw text, masks PII, analyzes it with an LLM, stores embeddings, and exposes analytics, semantic search, and a LangGraph agent. Stack: Python 3.14, FastAPI, SQLAlchemy 2.x async, Alembic, Supabase (Postgres, pgvector, Auth), Gemini (cloud) and Ollama (local). Status: Phases 0 (tooling, quality gates, local stack) and 1 (application skeleton) are complete; `worker` and `seed` become available as their roadmap phases land (`MASTERPLAN.md` §25).
 
 ## 2. Setup and daily commands
 
@@ -35,13 +35,14 @@ docker compose up -d --wait db auth kong   # only the local Supabase services
 - Depend on abstractions: `LLMProvider`, `EmbeddingProvider`, and `TaskQueue` (Cloud Tasks in the cloud, DB-polling worker locally). Both paths call the same `ProcessInteractionService`.
 - **Data sent to the LLM** (prompt data, agent tool results) is encoded in **TOON** through `app/ai/toon.py` (the `toon-format` package), not JSON. See <https://github.com/toon-format/toon>. Model output is still validated with Pydantic, and the REST API stays JSON.
 - PII masking is mandatory before storage or any LLM call. Input is capped at 1,000 characters.
-- REST API is versioned under `/api/v1`; every error uses the envelope `{"error": {"code", "message", "details", "request_id"}}`.
+- REST API is versioned under `/api/v1`; every error uses the envelope `{"error": {"code", "message", "details", "request_id"}}`. Raise an `AppError` subclass (`app/core/errors.py`); `code` is stable lowercase snake_case.
+- Database work goes through `open_scoped_session` / the `get_session` dependency, which set `app.tenant_id`, `app.role`, and `statement_timeout` per transaction. Policies use `app.current_tenant_id()`.
 
 ## 4. Code standards
 
 - Python 3.14 is a hard requirement; never downgrade it to fix a dependency.
 - Black (88 columns), isort, flake8, pylint, mypy strict, Bandit.
-- Type hints on all functions; use `Optional[X]` for optional types; Google-style docstrings; absolute imports; custom exception classes.
+- Type hints on all functions; use `X | None` for optional types (PEP 604; pylint rejects `Optional[X]`); Google-style docstrings; absolute imports; custom exception classes.
 - Logging uses the standard `logging` module with structured JSON on stdout. Never log interaction text, prompts, agent questions or answers, API keys, JWTs, connection strings, or secrets.
 - Dependencies: edit `requirements.in` (runtime) or `requirements-dev.in` (tooling), then recompile with `pip-compile --generate-hashes` (see README "Dependencies").
 
@@ -51,6 +52,7 @@ docker compose up -d --wait db auth kong   # only the local Supabase services
 - Unit, integration, and E2E tests use the `fake` AI provider and never call the network. Real models are used only in `tests/evals/` and post-deploy smoke tests.
 - Every new tenant table needs RLS tests proving tenant A cannot read tenant B's data.
 - `# pragma: no cover` only with a written justification.
+- Each API major version has its own schema and docs (`/api/v1/openapi.json`, `/api/v1/docs`, `/api/v1/redoc`; `app/api/docs.py`) and its own snapshot. An intended OpenAPI change means regenerating `tests/contract/openapi.v<major>.snapshot.json` with `--update-openapi-snapshot`; never edit it by hand.
 
 ## 6. Security and secrets
 
