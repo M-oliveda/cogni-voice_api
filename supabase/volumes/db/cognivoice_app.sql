@@ -14,3 +14,8 @@ CREATE ROLE cognivoice_app
     NOCREATEROLE
     NOREPLICATION
     NOBYPASSRLS;
+
+-- Migrations run as postgres. On PostgreSQL 16+ it can only alter roles it
+-- administers, as it does in the cloud, where it creates this role itself.
+-- INHERIT FALSE and SET FALSE: postgres gains no privileges of this role.
+GRANT cognivoice_app TO postgres WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
