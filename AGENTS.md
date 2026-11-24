@@ -4,12 +4,13 @@ Rules for AI coding assistants working on **CogniVoice API**. This file is the s
 
 ## 1. Project summary
 
-CogniVoice is a B2B, API-first, multi-tenant platform for customer-feedback intelligence: it ingests raw text, masks PII, analyzes it with an LLM, stores embeddings, and exposes analytics, semantic search, and a LangGraph agent. Stack: Python 3.14, FastAPI, SQLAlchemy 2.x async, Alembic, Supabase (Postgres, pgvector, Auth), Gemini (cloud) and Ollama (local). Status: planning; commands below become available as the roadmap phases land (`MASTERPLAN.md` §25).
+CogniVoice is a B2B, API-first, multi-tenant platform for customer-feedback intelligence: it ingests raw text, masks PII, analyzes it with an LLM, stores embeddings, and exposes analytics, semantic search, and a LangGraph agent. Stack: Python 3.14, FastAPI, SQLAlchemy 2.x async, Alembic, Supabase (Postgres, pgvector, Auth), Gemini (cloud) and Ollama (local). Status: Phase 0 (tooling, quality gates, local stack) is complete; `run`, `worker`, `migrate`, and `seed` become available as their roadmap phases land (`MASTERPLAN.md` §25).
 
 ## 2. Setup and daily commands
 
 ```bash
 make setup      # create .venv, install pinned dependencies, install git hooks
+make env        # create .env with generated local secrets (Compose needs it)
 make format     # Black and isort
 make lint       # flake8, pylint, Bandit
 make typecheck  # mypy (strict)
@@ -23,6 +24,7 @@ make migrate    # apply Alembic migrations
 make seed       # seed the demo tenant
 
 docker compose up --build   # Supabase + api + worker, all local services together
+docker compose up -d --wait db auth kong   # only the local Supabase services
 ```
 
 ## 3. Architecture rules
@@ -84,4 +86,4 @@ docker compose up --build   # Supabase + api + worker, all local services togeth
 
 - **Plan before medium or complex changes.** A change is medium or complex when it touches several files or layers, adds a dependency, changes a migration, the public API, security, or architecture, or its approach is not obvious. Enter a planning phase first: write a coding plan (goal, affected files, approach, tests, risks) and get the user's approval before editing code. Trivial, single-file fixes may proceed directly.
 - **No commits, pushes, or pull requests without explicit authorization.** Do not run `git commit`, `git push`, or create or update pull requests unless the user explicitly asks for that specific action. Approval for one commit, push, or pull request does not extend to later ones.
-- **No new documentation files unless asked.** Do not create Markdown or other documentation files (ADRs, change logs, summaries, reports, notes about what an agent did) unless the user explicitly requests them. Keep only the documentation needed to set up and run the application: `README.md`, `AGENTS.md` (with its `CLAUDE.md` symlink), `MASTERPLAN.md`, and `.env.example`. Record decisions by updating those files, and report work in the conversation instead of in files.
+- **No new documentation files unless asked.** Do not create Markdown or other documentation files (ADRs, change logs, summaries, reports, notes about what an agent did) unless the user explicitly requests them. Keep only the documentation needed to set up and run the application: `README.md`, `AGENTS.md` (with its `CLAUDE.md` symlink), `MASTERPLAN.md`, and `.env.example`. Record decisions by updating those files, and report work in the conversation instead of in files. This is decision 30 in `MASTERPLAN.md` §2.
